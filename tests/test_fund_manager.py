@@ -4,6 +4,9 @@ import pytest
 
 from core.config import settings
 from core.fund.manager import FundManager
+from core.simulation.portfolio import SimPosition, SimulationPortfolio
+from core.toss import account as toss_account
+from core.toss import market as toss_market
 
 
 @pytest.fixture
@@ -15,10 +18,10 @@ def fund_manager() -> FundManager:
 async def test_can_allocate_rejects_over_position_ratio(
     fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def _operating_funds() -> float:
+    async def _operating_funds(mode: str = "LIVE") -> float:
         return 425_000.0
 
-    async def _position_value(symbol: str) -> float:
+    async def _position_value(symbol: str, mode: str = "LIVE") -> float:
         return 150_000.0  # 이미 운용 자금의 약 35% 보유 중
 
     monkeypatch.setattr(fund_manager, "get_operating_funds_krw", _operating_funds)
@@ -35,10 +38,10 @@ async def test_can_allocate_rejects_over_position_ratio(
 async def test_can_allocate_allows_order_within_ratio(
     fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def _operating_funds() -> float:
+    async def _operating_funds(mode: str = "LIVE") -> float:
         return 425_000.0
 
-    async def _position_value(symbol: str) -> float:
+    async def _position_value(symbol: str, mode: str = "LIVE") -> float:
         return 0.0
 
     monkeypatch.setattr(fund_manager, "get_operating_funds_krw", _operating_funds)
@@ -53,7 +56,7 @@ async def test_can_allocate_allows_order_within_ratio(
 async def test_can_allocate_rejects_when_no_operating_funds(
     fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def _operating_funds() -> float:
+    async def _operating_funds(mode: str = "LIVE") -> float:
         return 0.0
 
     monkeypatch.setattr(fund_manager, "get_operating_funds_krw", _operating_funds)
@@ -68,10 +71,10 @@ async def test_can_allocate_rejects_when_no_operating_funds(
 async def test_get_position_ratio(
     fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def _operating_funds() -> float:
+    async def _operating_funds(mode: str = "LIVE") -> float:
         return 425_000.0
 
-    async def _position_value(symbol: str) -> float:
+    async def _position_value(symbol: str, mode: str = "LIVE") -> float:
         return 85_000.0
 
     monkeypatch.setattr(fund_manager, "get_operating_funds_krw", _operating_funds)
@@ -136,13 +139,13 @@ async def test_weekly_rebalance_splits_net_profit_80_20(
     async def _estimated_api_cost_krw() -> float:
         return 8_000.0
 
-    async def _weekly_net_profit_krw() -> int:
+    async def _weekly_net_profit_krw(mode: str = "LIVE") -> int:
         return 40_000
 
-    async def _total_value_krw() -> float:
+    async def _total_value_krw(mode: str = "LIVE") -> float:
         return 550_000.0
 
-    async def _cash_buffer_krw() -> float:
+    async def _cash_buffer_krw(mode: str = "LIVE") -> float:
         return 75_000.0
 
     monkeypatch.setattr(fund_manager, "estimated_api_cost_krw", _estimated_api_cost_krw)
@@ -170,13 +173,13 @@ async def test_weekly_rebalance_moves_buffer_overflow_to_operating_funds(
     async def _estimated_api_cost_krw() -> float:
         return 0.0
 
-    async def _weekly_net_profit_krw() -> int:
+    async def _weekly_net_profit_krw(mode: str = "LIVE") -> int:
         return 100_000
 
-    async def _total_value_krw() -> float:
+    async def _total_value_krw(mode: str = "LIVE") -> float:
         return 500_000.0  # 버퍼 상한 = 100,000
 
-    async def _cash_buffer_krw() -> float:
+    async def _cash_buffer_krw(mode: str = "LIVE") -> float:
         return 95_000.0  # 이미 상한에 근접
 
     monkeypatch.setattr(fund_manager, "estimated_api_cost_krw", _estimated_api_cost_krw)
@@ -195,3 +198,42 @@ async def test_weekly_rebalance_moves_buffer_overflow_to_operating_funds(
     # 초과분 15,000은 운용 자금으로 이동
     assert result.buffer_added_krw == 5_000
     assert result.reinvested_krw == 95_000
+
+
+@pytest.mark.asyncio
+async def test_simulation_mode_never_touches_live_toss_account(
+    fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SIMULATION 모드에서는 실계좌(toss_account)를 절대 조회하지 않아야 한다
+
+    (CLAUDE.md 규칙 11 — 실전 DB와 시뮬레이션 DB 절대 혼용 금지)."""
+
+    async def _fail_get_holdings() -> list[dict]:
+        raise AssertionError("SIMULATION 모드에서 실계좌 보유종목을 조회하면 안 된다")
+
+    async def _fail_get_buying_power() -> float:
+        raise AssertionError("SIMULATION 모드에서 실계좌 예수금을 조회하면 안 된다")
+
+    monkeypatch.setattr(toss_account, "get_holdings", _fail_get_holdings)
+    monkeypatch.setattr(toss_account, "get_buying_power", _fail_get_buying_power)
+
+    sim_portfolio = SimulationPortfolio(cash=100_000.0)
+    sim_portfolio.positions["005930"] = SimPosition(qty=10, avg_price=70_000.0, market="KR")
+
+    async def _load() -> SimulationPortfolio:
+        return sim_portfolio
+
+    monkeypatch.setattr(SimulationPortfolio, "load", _load)
+
+    async def _get_price(symbol: str) -> dict:
+        return {"price": 75_000.0}
+
+    async def _get_exchange_rate() -> float:
+        return 1_382.0
+
+    monkeypatch.setattr(toss_market, "get_price", _get_price)
+    monkeypatch.setattr(toss_market, "get_exchange_rate", _get_exchange_rate)
+
+    total_value = await fund_manager.get_total_value_krw("SIMULATION")
+
+    assert total_value == pytest.approx(100_000.0 + 10 * 75_000.0)

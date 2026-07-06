@@ -57,7 +57,7 @@ async def _build_state_snapshot(market: Market) -> StateSnapshot:
         prices=snapshot["prices"],
         portfolio={
             "total_value_krw": portfolio_status["totalValueKrw"],
-            "operating_funds_krw": await fund_manager.get_operating_funds_krw(),
+            "operating_funds_krw": await fund_manager.get_operating_funds_krw(mode),  # type: ignore[arg-type]
             "cash_buffer_krw": portfolio_status["cashBufferKrw"],
             "holdings": [_holding_entry(h) for h in snapshot["holdings"]],
             "open_orders": [],
@@ -132,7 +132,12 @@ async def run_loop(market: Market) -> None:
 
     if decision.action != "HOLD":
         mode = RunMode(mode=settings.run_mode, market=market)
-        result = await execute(decision, mode)
+        result = await execute(
+            decision,
+            mode,
+            strategy_version=state.strategy_version,
+            prompt_version=state.prompt_version,
+        )
         log.info(
             "loop_decision_executed",
             market=market,

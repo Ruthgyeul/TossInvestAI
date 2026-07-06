@@ -123,8 +123,65 @@ async def cancel_order(request: web.Request) -> web.Response:
         return _json({"success": False, "reason": str(e)})
 
 
+_CONTROL_FLAGS_REDIS_KEY = "control:flags"
+
+
+async def _persist_control_flags() -> None:
+    """EMERGENCY_STOP/KR_STOP/US_STOP을 DB + Redis에 즉시 반영한다 (docs/SAFETY.md "긴급 정지").
+
+    프로세스가 재시작돼도(systemd 자동 재시작 등) core/main.py가 부팅 시 DB에서
+    복원하므로 긴급 정지 상태가 소리 없이 풀리지 않는다.
+    """
+    await db.set_control_flags(
+        emergency_stop=settings.EMERGENCY_STOP,
+        kr_stop=settings.KR_STOP,
+        us_stop=settings.US_STOP,
+    )
+    redis = get_redis()
+    await redis.set(
+        _CONTROL_FLAGS_REDIS_KEY,
+        json.dumps(
+            {
+                "emergencyStop": settings.EMERGENCY_STOP,
+                "krStop": settings.KR_STOP,
+                "usStop": settings.US_STOP,
+            }
+        ),
+    )
+
+
+async def _cancel_open_orders(market: str | None) -> list[dict]:
+    """긴급 정지 시 미체결 주문 취소를 시도한다 (docs/SAFETY.md "실전: 모든 미체결 주문 취소 시도").
+
+    SIMULATION/DRY_RUN은 executor가 주문을 동기적으로 즉시 체결시켜 대기 상태로
+    남는 가상 주문이 존재하지 않으므로(core/trading/executor.py `_execute_simulation`)
+    취소 대상이 없다 — LIVE에서만 실제 취소를 시도한다.
+    """
+    if settings.run_mode != "LIVE":
+        return []
+
+    markets = [market] if market in ("KR", "US") else ["KR", "US"]
+    try:
+        pending = await toss_order.get_orders(status="PENDING")
+    except Exception as e:  # noqa: BLE001 — 조회 실패는 취소 시도를 막지 않고 빈 목록으로 진행
+        log.warning("cancel_open_orders_fetch_failed", error=str(e))
+        return []
+
+    cancelled: list[dict] = []
+    for o in pending:
+        if o.get("market") not in markets:
+            continue
+        order_id = o.get("orderId")
+        try:
+            await toss_order.cancel(order_id)
+            cancelled.append({"orderId": order_id, "symbol": o.get("symbol")})
+        except Exception as e:  # noqa: BLE001 — 개별 취소 실패는 나머지 주문 취소를 막지 않는다
+            log.warning("cancel_open_order_failed", order_id=order_id, error=str(e))
+    return cancelled
+
+
 async def post_stop(request: web.Request) -> web.Response:
-    """POST /api/v1/control/stop {market?} -> {success, emergencyStop, krStop, usStop}"""
+    """POST /api/v1/control/stop {market?} -> {success, emergencyStop, krStop, usStop, cancelledOrders}"""
     body = await request.json() if request.can_read_body else {}
     market = body.get("market")
 
@@ -135,6 +192,9 @@ async def post_stop(request: web.Request) -> web.Response:
     else:
         settings.EMERGENCY_STOP = True
 
+    await _persist_control_flags()
+    cancelled_orders = await _cancel_open_orders(market)
+
     await publish_event(
         "emergency_stop",
         mode=settings.run_mode,
@@ -143,6 +203,7 @@ async def post_stop(request: web.Request) -> web.Response:
             "emergencyStop": settings.EMERGENCY_STOP,
             "krStop": settings.KR_STOP,
             "usStop": settings.US_STOP,
+            "cancelledOrders": cancelled_orders,
         },
     )
     return _json(
@@ -151,6 +212,7 @@ async def post_stop(request: web.Request) -> web.Response:
             "emergencyStop": settings.EMERGENCY_STOP,
             "krStop": settings.KR_STOP,
             "usStop": settings.US_STOP,
+            "cancelledOrders": cancelled_orders,
         }
     )
 
@@ -160,6 +222,7 @@ async def post_resume(request: web.Request) -> web.Response:
     settings.EMERGENCY_STOP = False
     settings.KR_STOP = False
     settings.US_STOP = False
+    await _persist_control_flags()
     return _json({"success": True})
 
 
@@ -252,7 +315,7 @@ async def post_report_generate(request: web.Request) -> web.Response:
 async def get_fund(request: web.Request) -> web.Response:
     """GET /api/v1/fund -> {operatingFundsKrw, cashBufferKrw, cumulativeReturnPct, positionRatios}"""
     status = await fund_manager.get_portfolio_status(_current_mode())
-    operating_funds = await fund_manager.get_operating_funds_krw()
+    operating_funds = await fund_manager.get_operating_funds_krw(_current_mode())
 
     position_ratios = [
         {

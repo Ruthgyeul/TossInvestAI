@@ -223,6 +223,23 @@ class SimulationDailyPnl(Base):
     unrealized_pnl_krw: Mapped[int]
 
 
+class ControlFlags(Base):
+    """긴급 정지 상태 — 단일 행(id=1)을 갱신한다.
+
+    프로세스 재시작 시(systemd 자동 재시작 등) 인메모리 settings 값이 초기화되므로
+    core/main.py 기동 시 이 테이블에서 복원한다 (docs/SAFETY.md "EMERGENCY_STOP = true
+    (DB + Redis 즉시 반영)").
+    """
+
+    __tablename__ = "control_flags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    emergency_stop: Mapped[bool] = mapped_column(default=False)
+    kr_stop: Mapped[bool] = mapped_column(default=False)
+    us_stop: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SimulationPortfolioSnapshot(Base):
     """시뮬레이션 포트폴리오 스냅샷."""
 

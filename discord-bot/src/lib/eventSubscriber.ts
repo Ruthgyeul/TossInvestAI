@@ -3,7 +3,12 @@ import { Client, TextChannel } from "discord.js";
 import { Redis } from "ioredis";
 
 import { config } from "../config.js";
-import { buildEmergencyStopEmbed, buildHealthAlertEmbed, buildSafetyRejectionEmbed } from "../embeds/alert.js";
+import {
+  buildEmergencyStopEmbed,
+  buildHealthAlertEmbed,
+  buildReflectionEmbed,
+  buildSafetyRejectionEmbed,
+} from "../embeds/alert.js";
 import { buildReportEmbed, ReportEmbedData } from "../embeds/report.js";
 import { buildBuyEmbed, buildSellEmbed, TradeEmbedData } from "../embeds/trade.js";
 import type { StatusData } from "../embeds/status.js";
@@ -17,7 +22,8 @@ export interface PubSubEvent {
     | "health_alert"
     | "report_ready"
     | "backtest_complete"
-    | "status_update";
+    | "status_update"
+    | "reflection_ready";
   mode: "LIVE" | "SIMULATION" | "DRY_RUN";
   market: "KR" | "US" | null;
   correlation_id: string | null;
@@ -119,6 +125,13 @@ async function handleStatusUpdate(client: Client, event: PubSubEvent): Promise<v
   await updateStatusEmbed(client, event.payload as unknown as StatusData);
 }
 
+async function handleReflectionReady(client: Client, event: PubSubEvent): Promise<void> {
+  const payload = event.payload as { market: "KR" | "US"; contentMd: string };
+  const embed = buildReflectionEmbed(payload.market, payload.contentMd);
+  const channel = await getTextChannel(client, config.channels.system);
+  await channel?.send({ embeds: [embed] });
+}
+
 async function dispatch(client: Client, event: PubSubEvent): Promise<void> {
   switch (event.event_type) {
     case "trade_executed":
@@ -138,6 +151,9 @@ async function dispatch(client: Client, event: PubSubEvent): Promise<void> {
       break;
     case "status_update":
       await handleStatusUpdate(client, event);
+      break;
+    case "reflection_ready":
+      await handleReflectionReady(client, event);
       break;
     case "backtest_complete":
       // 전용 Embed 없음 — 원래는 correlation_id로 /backtest 인터랙션을 edit해야 하지만

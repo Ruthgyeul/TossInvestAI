@@ -108,7 +108,7 @@ async def test_run_loop_executes_non_hold_decision_and_publishes_status(
     async def _record_decision(state, decision_arg):  # noqa: ANN001
         recorded_decisions.append(decision_arg)
 
-    async def _execute(decision_arg, mode):  # noqa: ANN001
+    async def _execute(decision_arg, mode, *, strategy_version=None, prompt_version=None):  # noqa: ANN001
         executed.append(decision_arg)
         return OrderResult(filled=True, order_id="SIM-1", fill_price=75_000)
 

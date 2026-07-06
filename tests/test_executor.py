@@ -188,3 +188,50 @@ async def test_live_execution_places_order_via_toss_and_records_trade(
         },
     )
     assert published[0][0] == "trade_executed"
+
+
+@pytest.mark.asyncio
+async def test_trade_log_includes_logging_md_required_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """docs/LOGGING.md "거래 로그 형식" 필드(종목명·주문사유·Decision ID·전략/프롬프트 버전 등)."""
+
+    async def _approve(order, mode):  # noqa: ANN001
+        return GateResult.approve()
+
+    async def _place(order):  # noqa: ANN001
+        return {"orderId": "TOSS-1", "fillPrice": 74_800}
+
+    async def _get_commissions(market):  # noqa: ANN001
+        return {"rate": 0.001}
+
+    async def _insert(table, values):  # noqa: ANN001
+        return values
+
+    async def _publish(event_type, *, mode, market, payload, correlation_id=None):  # noqa: ANN001
+        pass
+
+    monkeypatch.setattr(executor.safety_gate, "check", _approve)
+    monkeypatch.setattr(executor.toss_order, "place", _place)
+    monkeypatch.setattr(executor.toss_account, "get_commissions", _get_commissions)
+    monkeypatch.setattr(executor.db, "insert", _insert)
+    monkeypatch.setattr(executor, "publish_event", _publish)
+
+    decision = _make_decision(price=74_800)
+    await executor.execute(
+        decision,
+        RunMode(mode="LIVE", market="KR"),
+        strategy_version="v1.2.0",
+        prompt_version="system_kr_v3",
+    )
+
+    log_file = next((tmp_path / "trading").glob("*.log"))
+    content = log_file.read_text(encoding="utf-8")
+
+    assert "종목명" in content
+    assert "주문 사유       테스트 사유" in content
+    assert "Claude Decision ID  decision-1" in content
+    assert "Toss Order ID       TOSS-1" in content
+    assert "전략 버전       v1.2.0" in content
+    assert "프롬프트 버전   system_kr_v3" in content
+    assert "실현 손익       해당 없음 (신규 매수)" in content

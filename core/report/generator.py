@@ -154,7 +154,7 @@ async def generate_weekly_report() -> str:
     """매주 월요일 장 시작 전 발송되는 주간 성과 리포트."""
     mode: Literal["LIVE", "SIMULATION"] = "LIVE" if settings.run_mode == "LIVE" else "SIMULATION"
     portfolio = await fund_manager.get_portfolio_status(mode)
-    rebalance = await fund_manager.weekly_rebalance()
+    rebalance = await fund_manager.weekly_rebalance(mode)
     now = datetime.now(_KST)
 
     return "\n".join(

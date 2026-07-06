@@ -35,3 +35,11 @@ export function buildHealthAlertEmbed(message: string): EmbedBuilder {
     .setDescription(message)
     .setTimestamp();
 }
+
+export function buildReflectionEmbed(market: "KR" | "US", contentMd: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0x0984e3)
+    .setTitle(`[빈] 🪞 ${market} 자기평가`)
+    .setDescription(contentMd.slice(0, 4000))
+    .setTimestamp();
+}

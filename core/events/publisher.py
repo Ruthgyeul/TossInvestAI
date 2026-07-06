@@ -18,6 +18,7 @@ EventType = Literal[
     "report_ready",
     "backtest_complete",
     "status_update",
+    "reflection_ready",
 ]
 
 _CHANNEL = "pubsub:events"
