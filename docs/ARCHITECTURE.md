@@ -212,6 +212,11 @@ TossInvestAI/
 │   ├── weekly/
 │   └── monthly/
 │
+├── deploy/
+│   └── systemd/                     # 실제 systemd 유닛 파일 (docs/DEPLOYMENT.md)
+│       ├── bin-core.service
+│       └── bin-discord.service
+│
 └── tests/
     ├── test_safety.py
     ├── test_fund_manager.py

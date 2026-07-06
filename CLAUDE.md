@@ -109,7 +109,8 @@ docs/
 ├── TOSS_API.md            ← 토스증권 API 전체 스펙, Rate Limit, 에러 코드
 ├── CODING_RULES.md        ← 코딩 컨벤션, 의존성, Prompt Caching 구현, 개발 순서
 ├── SELF_IMPROVEMENT.md    ← 자기개선 루프, 버전 관리·롤백, 배포 승인 절차
-└── INTERNAL_API.md        ← discord-bot ↔ core 내부 통신 스펙 (HTTP API, Redis pub/sub)
+├── INTERNAL_API.md        ← discord-bot ↔ core 내부 통신 스펙 (HTTP API, Redis pub/sub)
+└── DEPLOYMENT.md          ← 라즈베리파이 배포·업데이트·백업·롤백 절차
 ```
 
 ---
