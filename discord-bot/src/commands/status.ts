@@ -1,6 +1,7 @@
 // /status, /status kr|us, /holdings, /orders — 포트폴리오·보유·미체결 조회 (docs/DISCORD.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { buildStatusEmbed } from "../embeds/status.js";
 import { getHoldings, getOrders, getStatus } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
@@ -21,7 +22,8 @@ async function statusExecute(interaction: ChatInputCommandInteraction): Promise<
     const status = await getStatus(market ?? undefined);
     await interaction.reply({ embeds: [buildStatusEmbed(status)] });
   } catch (err) {
-    await interaction.reply({ content: `상태 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 상태 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
@@ -31,16 +33,17 @@ async function holdingsExecute(interaction: ChatInputCommandInteraction): Promis
   try {
     const { holdings } = await getHoldings();
     if (holdings.length === 0) {
-      await interaction.reply("보유 종목이 없습니다.");
+      await interaction.reply({ embeds: [buildInfoEmbed("[빈] 보유 종목", "보유 종목이 없습니다.")] });
       return;
     }
     const lines = holdings.map((h) => {
       const price = h.market === "US" ? `$${h.currentPrice.toFixed(2)}` : `${h.currentPrice.toLocaleString()}원`;
       return `${h.symbol}(${h.market}) ${h.quantity}주 @ ${h.avgPrice.toLocaleString()} → ${price} (${(h.pnlPct * 100).toFixed(1)}%)`;
     });
-    await interaction.reply(lines.join("\n"));
+    await interaction.reply({ embeds: [buildInfoEmbed("[빈] 보유 종목", lines.join("\n"))] });
   } catch (err) {
-    await interaction.reply({ content: `보유 종목 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 보유 종목 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
@@ -50,13 +53,14 @@ async function ordersExecute(interaction: ChatInputCommandInteraction): Promise<
   try {
     const { orders } = await getOrders();
     if (orders.length === 0) {
-      await interaction.reply("주문 내역이 없습니다.");
+      await interaction.reply({ embeds: [buildInfoEmbed("[빈] 미체결 주문", "주문 내역이 없습니다.")] });
       return;
     }
     const lines = orders.map((o) => `${o.orderId} — ${o.symbol}(${o.market}) ${o.status}`);
-    await interaction.reply(lines.join("\n"));
+    await interaction.reply({ embeds: [buildInfoEmbed("[빈] 미체결 주문", lines.join("\n"))] });
   } catch (err) {
-    await interaction.reply({ content: `주문 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 주문 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 

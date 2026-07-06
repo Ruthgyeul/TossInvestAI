@@ -2,9 +2,14 @@
 //
 // strategy/backtest.py 엔진은 Phase 5에서 구현된다(tests/test_backtest.py 참고) — 접수는 정상
 // 처리되지만 완료 이벤트(backtest_complete)는 아직 "미구현" 결과를 담아 온다.
+//
+// deferReply()로 응답을 미뤄두고, eventSubscriber.ts가 jobId(correlation_id)가 일치하는
+// backtest_complete 이벤트 수신 시 editReply()로 마무리한다 (docs/INTERNAL_API.md).
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed } from "../embeds/info.js";
 import { runBacktest } from "../lib/coreClient.js";
+import { trackInteraction } from "../lib/interactionTracker.js";
 import type { BotCommand } from "./types.js";
 
 const data = new SlashCommandBuilder()
@@ -23,11 +28,12 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
   const strategy = interaction.options.getString("strategy", true);
   const period = interaction.options.getString("period", true) as "1Y" | "3Y" | "5Y";
 
+  await interaction.deferReply();
   try {
     const { jobId } = await runBacktest(strategy, period);
-    await interaction.reply(`⏳ 백테스트를 시작했습니다 (Job ID: ${jobId}). 완료되면 알려드립니다.`);
+    trackInteraction(jobId, interaction);
   } catch (err) {
-    await interaction.reply({ content: `백테스트 요청 실패: ${(err as Error).message}`, ephemeral: true });
+    await interaction.editReply({ embeds: [buildErrorEmbed("[빈] ⚠️ 백테스트 요청 실패", (err as Error).message)] });
   }
 }
 

@@ -1,5 +1,5 @@
 // core → discord-bot 트레이딩 이벤트 구독. Redis `pubsub:events` 채널 단방향 푸시 (docs/INTERNAL_API.md).
-import { Client, TextChannel } from "discord.js";
+import { Client } from "discord.js";
 import { Redis } from "ioredis";
 
 import { config } from "../config.js";
@@ -9,9 +9,12 @@ import {
   buildReflectionEmbed,
   buildSafetyRejectionEmbed,
 } from "../embeds/alert.js";
+import { buildInfoEmbed } from "../embeds/info.js";
 import { buildReportEmbed, ReportEmbedData } from "../embeds/report.js";
 import { buildBuyEmbed, buildSellEmbed, TradeEmbedData } from "../embeds/trade.js";
 import type { StatusData } from "../embeds/status.js";
+import { getChannel } from "./channels.js";
+import { resolveInteraction } from "./interactionTracker.js";
 import { updateStatusEmbed } from "./statusChannel.js";
 
 export interface PubSubEvent {
@@ -31,13 +34,8 @@ export interface PubSubEvent {
   payload: Record<string, unknown>;
 }
 
-async function getTextChannel(client: Client, channelId: string): Promise<TextChannel | null> {
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  return channel instanceof TextChannel ? channel : null;
-}
-
 async function logRaw(client: Client, event: PubSubEvent): Promise<void> {
-  const channel = await getTextChannel(client, config.channels.log);
+  const channel = await getChannel(client, "log");
   if (!channel) return;
   const line = `[${event.mode}] ${event.event_type} ${JSON.stringify(event.payload)}`.slice(0, 1900);
   await channel.send(line).catch((err) => console.error("log_channel_send_failed", err));
@@ -70,9 +68,8 @@ async function handleTradeExecuted(client: Client, event: PubSubEvent): Promise<
     realizedPnlKrw: payload.pnlKrw ?? undefined,
   };
 
-  const channelId = payload.action === "BUY" ? config.channels.buy : config.channels.sell;
   const embed = payload.action === "BUY" ? buildBuyEmbed(data) : buildSellEmbed(data);
-  const channel = await getTextChannel(client, channelId);
+  const channel = await getChannel(client, payload.action === "BUY" ? "buy" : "sell");
   await channel?.send({ embeds: [embed] });
 }
 
@@ -85,20 +82,20 @@ async function handleSafetyRejection(client: Client, event: PubSubEvent): Promis
     reason: payload.reason,
     isSimulation: event.mode !== "LIVE",
   });
-  const channel = await getTextChannel(client, config.channels.error);
+  const channel = await getChannel(client, "error");
   await channel?.send({ embeds: [embed] });
 }
 
 async function handleEmergencyStop(client: Client, event: PubSubEvent): Promise<void> {
   const embed = buildEmergencyStopEmbed(event.market ?? undefined);
-  const channel = await getTextChannel(client, config.channels.system);
+  const channel = await getChannel(client, "system");
   await channel?.send({ embeds: [embed] });
 }
 
 async function handleHealthAlert(client: Client, event: PubSubEvent): Promise<void> {
   const payload = event.payload as { warnings: string[] };
   const embed = buildHealthAlertEmbed(payload.warnings.join("\n"));
-  const channel = await getTextChannel(client, config.channels.error);
+  const channel = await getChannel(client, "error");
   await channel?.send({ embeds: [embed] });
 }
 
@@ -117,8 +114,47 @@ async function handleReportReady(client: Client, event: PubSubEvent): Promise<vo
   };
   const embed = buildReportEmbed(data);
   const files = (payload.chartPaths ?? []).map((path) => ({ attachment: path }));
-  const channel = await getTextChannel(client, config.channels.analyze);
+
+  // /report가 발급한 jobId(correlation_id)와 일치하는 인터랙션이 있으면 그 자리에서 마무리하고,
+  // 없으면(봇 재시작 등) #stock-analyze에 게시한다 (docs/INTERNAL_API.md "동기 vs 지연 응답").
+  const interaction = resolveInteraction(event.correlation_id);
+  if (interaction) {
+    await interaction.editReply({ embeds: [embed], files });
+    return;
+  }
+  const channel = await getChannel(client, "analyze");
   await channel?.send({ embeds: [embed], files });
+}
+
+async function handleBacktestComplete(client: Client, event: PubSubEvent): Promise<void> {
+  const payload = event.payload as {
+    error?: string;
+    winRate?: number;
+    avgReturn?: number;
+    mdd?: number;
+    sharpeRatio?: number;
+    profitFactor?: number;
+  };
+
+  const embed = payload.error
+    ? buildInfoEmbed("[빈] ⏳ 백테스트 결과", payload.error, 0xfdcb6e)
+    : buildInfoEmbed(
+        "[빈] 📈 백테스트 결과",
+        [
+          `승률            ${((payload.winRate ?? 0) * 100).toFixed(1)}%`,
+          `평균 수익률     ${((payload.avgReturn ?? 0) * 100).toFixed(2)}%`,
+          `MDD             ${((payload.mdd ?? 0) * 100).toFixed(2)}%`,
+          `샤프 지수       ${(payload.sharpeRatio ?? 0).toFixed(2)}`,
+          `수익 팩터       ${(payload.profitFactor ?? 0).toFixed(2)}`,
+        ].join("\n"),
+      );
+
+  // /backtest가 발급한 jobId(correlation_id)와 일치하는 인터랙션을 edit한다 — 전용 채널이
+  // 없으므로(docs/INTERNAL_API.md) 매칭되는 인터랙션이 없으면 #stock-log 기록만 남긴다.
+  const interaction = resolveInteraction(event.correlation_id);
+  if (interaction) {
+    await interaction.editReply({ embeds: [embed] });
+  }
 }
 
 async function handleStatusUpdate(client: Client, event: PubSubEvent): Promise<void> {
@@ -128,7 +164,7 @@ async function handleStatusUpdate(client: Client, event: PubSubEvent): Promise<v
 async function handleReflectionReady(client: Client, event: PubSubEvent): Promise<void> {
   const payload = event.payload as { market: "KR" | "US"; contentMd: string };
   const embed = buildReflectionEmbed(payload.market, payload.contentMd);
-  const channel = await getTextChannel(client, config.channels.system);
+  const channel = await getChannel(client, "system");
   await channel?.send({ embeds: [embed] });
 }
 
@@ -156,8 +192,7 @@ async function dispatch(client: Client, event: PubSubEvent): Promise<void> {
       await handleReflectionReady(client, event);
       break;
     case "backtest_complete":
-      // 전용 Embed 없음 — 원래는 correlation_id로 /backtest 인터랙션을 edit해야 하지만
-      // (docs/INTERNAL_API.md), 인터랙션 추적 저장소가 없어 이번 Phase는 #stock-log 기록만 한다.
+      await handleBacktestComplete(client, event);
       break;
   }
 

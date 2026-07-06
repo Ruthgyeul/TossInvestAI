@@ -4,6 +4,7 @@ import { Client, GatewayIntentBits, Interaction } from "discord.js";
 
 import { commandMap } from "./commands/index.js";
 import { config } from "./config.js";
+import { buildErrorEmbed } from "./embeds/info.js";
 import { onReady } from "./events/ready.js";
 import { subscribeToEvents } from "./lib/eventSubscriber.js";
 
@@ -27,11 +28,11 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await command.execute(interaction);
   } catch (err) {
     console.error(`[빈] /${interaction.commandName} 실행 실패`, err);
-    const errorMessage = "명령 처리 중 오류가 발생했습니다.";
+    const embed = buildErrorEmbed("[빈] ⚠️ 명령 처리 실패", "명령 처리 중 오류가 발생했습니다.");
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: errorMessage, ephemeral: true }).catch(() => undefined);
+      await interaction.followUp({ embeds: [embed], ephemeral: true }).catch(() => undefined);
     } else {
-      await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => undefined);
+      await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => undefined);
     }
   }
 });

@@ -1,19 +1,14 @@
 // #status 채널의 고정 Embed 메시지를 관리한다. 최초 1개 전송 후 동일 메시지를 계속 edit한다
 // (docs/DISCORD.md "#status 채널 운영 방식").
-import { Client, TextChannel } from "discord.js";
+import { Client } from "discord.js";
 
-import { config } from "../config.js";
 import { buildStatusEmbed, StatusData } from "../embeds/status.js";
+import { getChannel } from "./channels.js";
 
 let statusMessageId: string | null = null;
 
-async function getStatusChannel(client: Client): Promise<TextChannel | null> {
-  const channel = await client.channels.fetch(config.channels.status).catch(() => null);
-  return channel instanceof TextChannel ? channel : null;
-}
-
 export async function updateStatusEmbed(client: Client, data: StatusData): Promise<void> {
-  const channel = await getStatusChannel(client);
+  const channel = await getChannel(client, "status");
   if (!channel) return;
 
   const embed = buildStatusEmbed(data);
