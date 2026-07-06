@@ -1,6 +1,7 @@
 // /health — 라즈베리파이 상태 (CPU·메모리·온도·디스크) (docs/LOGGING.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { getHealth } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
 
@@ -16,9 +17,11 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
       `온도    ${health.tempC.toFixed(1)}°C`,
       `토스 API  ${health.tossApiReachable ? "정상" : "응답 없음"}`,
     ];
-    await interaction.reply(lines.join("\n"));
+    const embed = buildInfoEmbed("[빈] 라즈베리파이 상태", lines.join("\n"));
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `상태 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 상태 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 

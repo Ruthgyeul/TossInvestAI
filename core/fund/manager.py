@@ -25,9 +25,29 @@ class RebalanceResult:
 
 
 class FundManager:
-    async def _get_position_value_krw(self, symbol: str) -> float:
+    async def _load_holdings_and_cash(self, mode: Mode) -> tuple[list[dict], float]:
+        """LIVE는 실계좌, SIMULATION/DRY_RUN은 가상 포트폴리오 기준 보유종목·현금을 반환한다.
+
+        SIMULATION 중 실전 계좌 데이터를 참조하면 Safety Gate의 종목당 상한·현금버퍼
+        게이트가 실계좌 기준으로 계산돼버린다 (CLAUDE.md 규칙 11 — 실전/시뮬 DB 혼용 금지).
+        """
+        if mode == "LIVE":
+            holdings = await toss_account.get_holdings()
+            cash = await toss_account.get_buying_power()
+            return holdings, cash
+
+        from core.simulation.portfolio import SimulationPortfolio
+
+        portfolio = await SimulationPortfolio.load()
+        holdings = [
+            {"symbol": symbol, "market": pos.market, "quantity": pos.qty, "avgPrice": pos.avg_price}
+            for symbol, pos in portfolio.positions.items()
+        ]
+        return holdings, portfolio.cash
+
+    async def _get_position_value_krw(self, symbol: str, mode: Mode = "LIVE") -> float:
         """특정 종목의 현재 평가액 (KRW 환산)."""
-        holdings = await toss_account.get_holdings()
+        holdings, _ = await self._load_holdings_and_cash(mode)
         holding = next((h for h in holdings if h["symbol"] == symbol), None)
         if holding is None:
             return 0.0
@@ -38,9 +58,8 @@ class FundManager:
             value *= await toss_market.get_exchange_rate()
         return float(value)
 
-    async def _get_holdings_value_krw(self) -> float:
+    async def _get_holdings_value_krw(self, holdings: list[dict]) -> float:
         """보유 종목 전체 평가액 (KRW 환산)."""
-        holdings = await toss_account.get_holdings()
         exchange_rate = await toss_market.get_exchange_rate()
 
         total = 0.0
@@ -52,44 +71,44 @@ class FundManager:
             total += value
         return total
 
-    async def get_total_value_krw(self) -> float:
-        """총 자산 KRW 환산 (보유 주식 시가 + 현금)."""
-        holdings_value = await self._get_holdings_value_krw()
-        cash = await toss_account.get_buying_power()
+    async def get_total_value_krw(self, mode: Mode = "LIVE") -> float:
+        """총 자산 KRW 환산 (보유 주식 시가 + 현금). mode에 따라 실계좌/가상 포트폴리오를 사용한다."""
+        holdings, cash = await self._load_holdings_and_cash(mode)
+        holdings_value = await self._get_holdings_value_krw(holdings)
         return holdings_value + cash
 
-    async def get_cash_buffer_krw(self) -> float:
+    async def get_cash_buffer_krw(self, mode: Mode = "LIVE") -> float:
         """현금 버퍼 잔고 = 총 자산의 CASH_BUFFER_RATIO."""
-        total_value = await self.get_total_value_krw()
+        total_value = await self.get_total_value_krw(mode)
         return total_value * settings.CASH_BUFFER_RATIO
 
-    async def get_operating_funds_krw(self) -> float:
+    async def get_operating_funds_krw(self, mode: Mode = "LIVE") -> float:
         """운용 자금 = 총 자산 - 현금 버퍼."""
-        total_value = await self.get_total_value_krw()
+        total_value = await self.get_total_value_krw(mode)
         return total_value * (1 - settings.CASH_BUFFER_RATIO)
 
-    async def get_position_ratio(self, symbol: str) -> float:
+    async def get_position_ratio(self, symbol: str, mode: Mode = "LIVE") -> float:
         """특정 종목의 운용 자금 대비 비중."""
-        operating_funds = await self.get_operating_funds_krw()
+        operating_funds = await self.get_operating_funds_krw(mode)
         if operating_funds <= 0:
             return 0.0
-        position_value = await self._get_position_value_krw(symbol)
+        position_value = await self._get_position_value_krw(symbol, mode)
         return position_value / operating_funds
 
-    async def can_allocate(self, amount_krw: float, symbol: str) -> tuple[bool, str]:
+    async def can_allocate(self, amount_krw: float, symbol: str, mode: Mode = "LIVE") -> tuple[bool, str]:
         """주문 가능 여부 판단 (종목당 상한 MAX_POSITION_RATIO 체크)."""
-        operating_funds = await self.get_operating_funds_krw()
+        operating_funds = await self.get_operating_funds_krw(mode)
         if operating_funds <= 0:
             return False, "운용 자금 부족"
 
-        current_position_krw = await self._get_position_value_krw(symbol)
+        current_position_krw = await self._get_position_value_krw(symbol, mode)
         projected_ratio = (current_position_krw + amount_krw) / operating_funds
         if projected_ratio > settings.MAX_POSITION_RATIO:
             return False, f"종목당 상한 초과: {projected_ratio:.1%}"
 
         return True, "허용"
 
-    async def weekly_rebalance(self) -> RebalanceResult:
+    async def weekly_rebalance(self, mode: Mode = "LIVE") -> RebalanceResult:
         """매주 월요일 장 시작 전 자동 실행. 코드 외부에서 임의 변경 불가.
 
         STEP 1. Claude API 사용료 추정 → 현금 버퍼에서 확보
@@ -98,14 +117,14 @@ class FundManager:
         STEP 4. 현금 버퍼가 총 자산의 20% 초과 시 초과분을 운용 자금으로 이동
         """
         api_cost_krw = int(await self.estimated_api_cost_krw())
-        net_profit_krw = await db.get_weekly_net_profit_krw()
+        net_profit_krw = await db.get_weekly_net_profit_krw(mode)
         remaining = max(net_profit_krw - api_cost_krw, 0)
 
         reinvested_krw = int(remaining * _WEEKLY_REINVEST_RATIO)
         buffer_added_krw = remaining - reinvested_krw
 
-        total_value = await self.get_total_value_krw()
-        cash_buffer = await self.get_cash_buffer_krw() + buffer_added_krw
+        total_value = await self.get_total_value_krw(mode)
+        cash_buffer = await self.get_cash_buffer_krw(mode) + buffer_added_krw
         max_buffer = total_value * _MAX_CASH_BUFFER_RATIO
         if cash_buffer > max_buffer:
             overflow = cash_buffer - max_buffer
@@ -178,24 +197,7 @@ class FundManager:
         KR·US가 하나의 자금 풀을 공유하므로(docs/FUND_MANAGER.md) 전체 계정 기준을 유지한다.
         """
         exchange_rate = await toss_market.get_exchange_rate()
-
-        if mode == "LIVE":
-            raw_holdings = await toss_account.get_holdings()
-            cash = await toss_account.get_buying_power()
-        else:
-            from core.simulation.portfolio import SimulationPortfolio
-
-            portfolio = await SimulationPortfolio.load()
-            raw_holdings = [
-                {
-                    "symbol": symbol,
-                    "market": pos.market,
-                    "quantity": pos.qty,
-                    "avgPrice": pos.avg_price,
-                }
-                for symbol, pos in portfolio.positions.items()
-            ]
-            cash = portfolio.cash
+        raw_holdings, cash = await self._load_holdings_and_cash(mode)
 
         holdings = []
         holdings_value_krw = 0.0

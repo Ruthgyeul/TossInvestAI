@@ -1,6 +1,7 @@
 // /dryrun on|off, /simulate on|off, /simstatus — 운영 모드 전환 (docs/SAFETY.md, docs/FUND_MANAGER.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { getSimStatus, setDryRun, setSimulate } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
 
@@ -18,9 +19,11 @@ async function dryrunExecute(interaction: ChatInputCommandInteraction): Promise<
   const state = interaction.options.getString("state", true) as "on" | "off";
   try {
     const result = await setDryRun(state);
-    await interaction.reply(`DRY_RUN 모드: ${result.dryRun ? "on" : "off"}`);
+    const embed = buildInfoEmbed("[빈] DRY_RUN 모드", `DRY_RUN 모드: ${result.dryRun ? "on" : "off"}`);
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `모드 전환 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 모드 전환 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
@@ -38,9 +41,14 @@ async function simulateExecute(interaction: ChatInputCommandInteraction): Promis
   const state = interaction.options.getString("state", true) as "on" | "off";
   try {
     const result = await setSimulate(state);
-    await interaction.reply(`SIMULATION 모드: ${result.simulation ? "on" : "off"}`);
+    const embed = buildInfoEmbed(
+      "[빈] SIMULATION 모드",
+      `SIMULATION 모드: ${result.simulation ? "on" : "off"}`,
+    );
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `모드 전환 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 모드 전환 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
@@ -63,9 +71,11 @@ async function simstatusExecute(interaction: ChatInputCommandInteraction): Promi
       `Safety Gate 거부  ${s.rejectionCount}회`,
       `Claude API 비용   ${s.apiCostKrw.toLocaleString()} KRW (${s.apiCallCount}회)`,
     ];
-    await interaction.reply(lines.join("\n"));
+    const embed = buildInfoEmbed("[빈] 🟡 시뮬레이션 성과 리포트", lines.slice(1).join("\n"));
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `시뮬레이션 현황 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 시뮬레이션 현황 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 

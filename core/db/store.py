@@ -14,6 +14,7 @@ from core.config import settings
 from core.db.models import (
     ApiUsage,
     Base,
+    ControlFlags,
     DailyPnl,
     DecisionRecord,
     MarketEvent,
@@ -50,6 +51,7 @@ _MODELS: list[type[DeclarativeBase]] = [
     SimulationPosition,
     SimulationDailyPnl,
     SimulationPortfolioSnapshot,
+    ControlFlags,
 ]
 # Position은 core.db.models.Position이지만 core.models.Order와 이름이 겹쳐 별칭 처리한다.
 from core.db.models import Position as PositionRow  # noqa: E402
@@ -211,6 +213,37 @@ async def get_api_usage_month_krw(mode: Mode = "LIVE") -> int:
     return int(summary["cost_krw"])
 
 
+async def get_today_trades(mode: Mode, market: Market) -> list[dict[str, Any]]:
+    """core/trading/reflection.py에서 사용. 오늘(KST 자정 이후, UTC 기준 근사) 체결 내역."""
+    model = _trade_model_for_mode(mode)
+    today_start_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async with _session() as session:
+        stmt = select(model).where(
+            model.market == market,  # type: ignore[attr-defined]
+            model.created_at >= today_start_utc,  # type: ignore[attr-defined]
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    return [_row_to_dict(row) for row in rows]
+
+
+async def get_today_rejections(market: Market) -> list[dict[str, Any]]:
+    """core/trading/reflection.py에서 사용. 오늘(KST 자정 이후, UTC 기준 근사) Safety Gate 거부 내역."""
+    today_start_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async with _session() as session:
+        stmt = select(SafetyRejection).where(
+            SafetyRejection.market == market,
+            SafetyRejection.created_at >= today_start_utc,
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    return [_row_to_dict(row) for row in rows]
+
+
 async def get_weekly_net_profit_krw(mode: Mode = "LIVE") -> int:
     """FundManager.weekly_rebalance에서 사용. 최근 7일 실현 손익 합계."""
     model = _trade_model_for_mode(mode)
@@ -222,6 +255,59 @@ async def get_weekly_net_profit_krw(mode: Mode = "LIVE") -> int:
         rows = result.scalars().all()
 
     return sum(row.pnl_krw or 0 for row in rows)  # type: ignore[attr-defined,misc]
+
+
+async def get_control_flags() -> dict[str, bool]:
+    """core/main.py 기동 시 EMERGENCY_STOP/KR_STOP/US_STOP을 복원한다 (docs/SAFETY.md)."""
+    async with _session() as session:
+        stmt = select(ControlFlags).where(ControlFlags.id == 1)
+        result = await session.execute(stmt)
+        row = result.scalars().first()
+
+    if row is None:
+        return {"emergency_stop": False, "kr_stop": False, "us_stop": False}
+    return {
+        "emergency_stop": row.emergency_stop,
+        "kr_stop": row.kr_stop,
+        "us_stop": row.us_stop,
+    }
+
+
+async def set_control_flags(
+    *, emergency_stop: bool, kr_stop: bool, us_stop: bool
+) -> None:
+    """`/stop`·`/resume` 즉시 DB에 반영한다 — 프로세스 재시작에도 상태가 유지되도록."""
+    stmt = pg_insert(ControlFlags).values(
+        id=1,
+        emergency_stop=emergency_stop,
+        kr_stop=kr_stop,
+        us_stop=us_stop,
+        updated_at=datetime.now(timezone.utc),
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["id"],
+        set_={
+            "emergency_stop": stmt.excluded.emergency_stop,
+            "kr_stop": stmt.excluded.kr_stop,
+            "us_stop": stmt.excluded.us_stop,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    async with _session() as session:
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def get_recent_simulation_snapshots(limit: int = 30) -> list[dict[str, Any]]:
+    """core/report/chart.py 시계열 그래프(자산 추이·수익률)에서 사용.
+
+    core/trading/loop.py `publish_status_update`가 매 루프마다 적재하는
+    simulation_portfolio_snapshots를 오래된 순으로 반환한다.
+    """
+    rows = await fetch_all(
+        "simulation_portfolio_snapshots", order_by="snapshot_at", descending=True, limit=limit
+    )
+    return list(reversed(rows))
 
 
 async def get_long_term_memory(market: Market) -> dict[str, Any]:

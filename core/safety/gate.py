@@ -75,10 +75,10 @@ class SafetyGate:
 
     async def _get_position_ratio(self, symbol: str, mode: RunMode) -> float:
         """SIMULATION에서는 FundManager가 가상 포지션 기준으로 계산한다."""
-        return await fund_manager.get_position_ratio(symbol)
+        return await fund_manager.get_position_ratio(symbol, mode.mode)
 
     async def _get_cash_buffer(self, mode: RunMode) -> float:
-        return await fund_manager.get_cash_buffer_krw()
+        return await fund_manager.get_cash_buffer_krw(mode.mode)
 
     async def _get_stock_warnings(self, symbol: str) -> dict:
         return await toss_market.get_stock_warnings(symbol)

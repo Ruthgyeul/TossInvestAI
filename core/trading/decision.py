@@ -1,84 +1,41 @@
 """AI Gateway 호출 진입점. 이 모듈만이 매매 결정을 위해 Claude를 호출한다 (CLAUDE.md 절대 규칙 5)."""
 
-import uuid
-
 import anthropic
 import structlog
 
 from core.gateway.claude import claude_gateway
 from core.gateway.deepseek import deepseek_gateway
-from core.models import Decision, StateSnapshot
+from core.models import Decision, Market, StateSnapshot
+from core.strategy.base import BaseStrategy
+from core.strategy.kr.mean_reversion import MeanReversionStrategy
+from core.strategy.kr.momentum import MomentumStrategy as KRMomentumStrategy
+from core.strategy.us.momentum import MomentumStrategy as USMomentumStrategy
 
 log = structlog.get_logger(__name__)
 
-_RSI_OVERBOUGHT = 75
-_RSI_OVERSOLD = 28
-# 규칙 기반 매수는 소액만 즉시 진입시킨다 — 최종 한도는 Safety Gate가 검증한다 (docs/SAFETY.md).
-_RULE_BASED_BUY_KRW = 50_000
+# 시장별 규칙 기반 전략 목록. 앞의 전략이 신호를 내면 뒤는 평가하지 않는다
+# (CODING_RULES.md 확장성 원칙 — 새 전략은 core/strategy/{market}/*.py에 BaseStrategy를
+# 상속해 추가하고 이 목록에 등록한다).
+_STRATEGIES_BY_MARKET: dict[Market, list[BaseStrategy]] = {
+    "KR": [MeanReversionStrategy(), KRMomentumStrategy()],
+    "US": [USMomentumStrategy()],
+}
 
 
-def rule_based_filter(state: StateSnapshot) -> Decision | None:
-    """규칙 기반으로 명확한 신호(RSI>75 매도, RSI<28 매수, VI 발동 제외 등)를 즉시 처리한다.
+async def rule_based_filter(state: StateSnapshot) -> Decision | None:
+    """시장별로 등록된 전략을 순서대로 시도해 규칙 기반으로 처리 가능한 신호를 즉시 반환한다.
 
-    처리 가능하면 Decision을, 모호하면 None을 반환해 Claude 호출로 넘긴다.
+    어떤 전략도 신호를 내지 않으면 None을 반환해 Claude 호출로 넘긴다.
     """
-    holdings = {h["symbol"]: h for h in state.portfolio.get("holdings", [])}
-
-    for symbol, data in state.prices.items():
-        rsi = data.get("rsi_14")
-        if rsi is None:
-            continue
-
-        holding = holdings.get(symbol)
-
-        if holding is not None and rsi > _RSI_OVERBOUGHT:
-            return _rule_decision(
-                symbol=symbol,
-                action="SELL",
-                quantity=holding["quantity"],
-                price=None,
-                reason=f"RSI {rsi:.1f} > {_RSI_OVERBOUGHT} 과매수 구간 — 보유 물량 매도",
-            )
-
-        if holding is None and rsi < _RSI_OVERSOLD:
-            if state.market == "KR" and data.get("vi_triggered"):
-                continue
-
-            price = data.get("price")
-            quantity = int(_RULE_BASED_BUY_KRW // price) if price else 0
-            if quantity <= 0:
-                continue
-
-            return _rule_decision(
-                symbol=symbol,
-                action="BUY",
-                quantity=quantity,
-                price=None,
-                reason=f"RSI {rsi:.1f} < {_RSI_OVERSOLD} 과매도 구간 — 소액 매수",
-            )
-
+    for strategy in _STRATEGIES_BY_MARKET.get(state.market, []):
+        if signal := await strategy.generate_signal(state):
+            return signal
     return None
-
-
-def _rule_decision(
-    *, symbol: str, action: str, quantity: int, price: float | None, reason: str
-) -> Decision:
-    return Decision(
-        decision_id=str(uuid.uuid4()),
-        action=action,  # type: ignore[arg-type]
-        symbol=symbol,
-        quantity=quantity,
-        order_type="MARKET",
-        price=price,
-        confidence=1.0,
-        reason=reason,
-        risk_level="LOW",
-    )
 
 
 async def get_decision(state: StateSnapshot) -> Decision:
     """1. 규칙 기반 필터 → 2. Claude 직접 호출 → 3. 실패 시 DeepSeek 폴백."""
-    if signal := rule_based_filter(state):
+    if signal := await rule_based_filter(state):
         return signal
 
     try:

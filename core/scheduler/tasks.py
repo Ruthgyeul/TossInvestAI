@@ -1,9 +1,7 @@
-"""APScheduler 태스크 정의. KR·US 루프, 리포트 6회/일, 헬스체크를 등록한다.
+"""APScheduler 태스크 정의. KR·US 루프, 리포트 6회/일, 헬스체크, 자동 백업, 자기평가를 등록한다.
 
-시각은 모두 KST 기준이며 docs/REPORT.md·docs/FUND_MANAGER.md·docs/LOGGING.md 스케줄을 따른다.
-
-Reflection(자기평가)·자동 DB 백업은 core/trading/reflection.py·core/db/backup.py가
-아직 최소 스캐폴드 상태라 이번 Phase에서는 등록하지 않는다 — 구현 완료 후 여기에 추가한다.
+시각은 모두 KST 기준이며 docs/REPORT.md·docs/FUND_MANAGER.md·docs/LOGGING.md·docs/BIN.md
+스케줄을 따른다.
 """
 
 from datetime import datetime
@@ -13,9 +11,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from core.config import settings
+from core.db.backup import run_daily_backup, run_monthly_backup, run_weekly_backup
 from core.events.publisher import publish_event
 from core.monitoring.health import run_health_check
 from core.report.generator import generate_and_publish, generate_weekly_report
+from core.trading.reflection import run_reflection
 
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 _KST = ZoneInfo("Asia/Seoul")
@@ -77,5 +77,41 @@ def register_all_jobs() -> None:
         "interval",
         minutes=5,
         id="health_check",
+        replace_existing=True,
+    )
+
+    # docs/LOGGING.md "자동 DB 백업" — 매일 03:00 / 매주 일요일 / 매월 1일 (KST)
+    scheduler.add_job(
+        run_daily_backup,
+        CronTrigger(hour=3, minute=0, timezone=_KST),
+        id="db_backup_daily",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_weekly_backup,
+        CronTrigger(day_of_week="sun", hour=3, minute=10, timezone=_KST),
+        id="db_backup_weekly",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_monthly_backup,
+        CronTrigger(day=1, hour=3, minute=20, timezone=_KST),
+        id="db_backup_monthly",
+        replace_existing=True,
+    )
+
+    # docs/BIN.md "자기평가" — KR 15:40 / US 06:10 (KST) 장 마감 후 1회
+    scheduler.add_job(
+        run_reflection,
+        CronTrigger(hour=15, minute=40, timezone=_KST),
+        args=["KR"],
+        id="reflection_kr",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_reflection,
+        CronTrigger(hour=6, minute=10, timezone=_KST),
+        args=["US"],
+        id="reflection_us",
         replace_existing=True,
     )

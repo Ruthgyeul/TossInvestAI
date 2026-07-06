@@ -1,6 +1,7 @@
 // /fund — 자금 배분 현황, /apicost — 이번 달 Claude API 비용 추정 (docs/DISCORD.md, docs/FUND_MANAGER.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { getApiCost, getFund } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
 
@@ -21,9 +22,11 @@ async function fundExecute(interaction: ChatInputCommandInteraction): Promise<vo
         ? f.positionRatios.map((p) => `  ${p.symbol}: ${(p.ratio * 100).toFixed(1)}%`)
         : ["  보유 종목 없음"]),
     ];
-    await interaction.reply(lines.join("\n"));
+    const embed = buildInfoEmbed("[빈] 자금 배분 현황", lines.join("\n"));
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `자금 현황 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 자금 현황 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
@@ -34,11 +37,14 @@ const apicostData = new SlashCommandBuilder()
 async function apicostExecute(interaction: ChatInputCommandInteraction): Promise<void> {
   try {
     const cost = await getApiCost();
-    await interaction.reply(
+    const embed = buildInfoEmbed(
+      "[빈] Claude API 비용",
       `이번 달 Claude API 비용: ${cost.monthCostKrw.toLocaleString()} KRW (${cost.monthCostUsd} USD, ${cost.callCount}회 호출)`,
     );
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `API 비용 조회 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ API 비용 조회 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 

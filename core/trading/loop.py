@@ -1,7 +1,7 @@
 """KR·US 트레이딩 루프 진입점. APScheduler가 시장별로 독립 실행한다 (docs/BIN.md)."""
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -57,7 +57,7 @@ async def _build_state_snapshot(market: Market) -> StateSnapshot:
         prices=snapshot["prices"],
         portfolio={
             "total_value_krw": portfolio_status["totalValueKrw"],
-            "operating_funds_krw": await fund_manager.get_operating_funds_krw(),
+            "operating_funds_krw": await fund_manager.get_operating_funds_krw(mode),  # type: ignore[arg-type]
             "cash_buffer_krw": portfolio_status["cashBufferKrw"],
             "holdings": [_holding_entry(h) for h in snapshot["holdings"]],
             "open_orders": [],
@@ -69,8 +69,13 @@ async def _build_state_snapshot(market: Market) -> StateSnapshot:
 
 
 def _infer_model_used(decision: Decision) -> str:
-    """rule_based_filter가 생성한 결정인지 추정한다 (decision.py `_rule_decision` 사유 문구 기준)."""
-    if decision.confidence == 1.0 and "구간" in decision.reason:
+    """rule_based_filter가 생성한 결정인지 추정한다.
+
+    core/strategy/base.py `BaseStrategy.make_decision`은 항상 confidence=1.0을 쓰고,
+    Claude/DeepSeek는 프롬프트상 confidence를 임의의 0~1 실수로 반환하므로 정확히 1.0이
+    나올 확률은 낮다 — 완벽하진 않지만 별도 필드 없이 쓸 수 있는 실용적인 추정치다.
+    """
+    if decision.confidence == 1.0:
         return "rule_based"
     return settings.CLAUDE_MODEL
 
@@ -132,7 +137,12 @@ async def run_loop(market: Market) -> None:
 
     if decision.action != "HOLD":
         mode = RunMode(mode=settings.run_mode, market=market)
-        result = await execute(decision, mode)
+        result = await execute(
+            decision,
+            mode,
+            strategy_version=state.strategy_version,
+            prompt_version=state.prompt_version,
+        )
         log.info(
             "loop_decision_executed",
             market=market,
@@ -150,11 +160,14 @@ async def publish_status_update() -> None:
     simulation_status = await fund_manager.get_portfolio_status("SIMULATION")
 
     # /simstatus의 MDD·샤프 지수 계산용 시계열 스냅샷 (docs/FUND_MANAGER.md).
+    # snapshot_at은 db.insert()의 created_at 자동 채움 대상이 아니므로 직접 지정해야 한다
+    # (지정하지 않으면 NOT NULL 제약 위반으로 매 루프마다 실패한다).
     await db.insert(
         "simulation_portfolio_snapshots",
         {
             "total_value_krw": simulation_status["totalValueKrw"],
             "cash_krw": simulation_status["cashKrw"],
+            "snapshot_at": datetime.now(timezone.utc),
         },
     )
 

@@ -1,6 +1,7 @@
 // /sell {symbol} {qty} [price] — 수동 매도 (docs/DISCORD.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { placeSellOrder } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
 
@@ -19,14 +20,18 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
   try {
     const result = await placeSellOrder(symbol, qty, price);
     if (!result.approved) {
-      await interaction.reply(`⚠️ 매도 거부: ${result.reason ?? "알 수 없는 사유"}`);
+      const embed = buildErrorEmbed("[빈] ⚠️ 매도 거부", result.reason ?? "알 수 없는 사유");
+      await interaction.reply({ embeds: [embed] });
       return;
     }
-    await interaction.reply(
-      `✅ 매도 접수 — ${symbol} ${qty}주 @ ${result.fillPrice?.toLocaleString() ?? "-"} (Order ID: ${result.orderId})`,
+    const embed = buildInfoEmbed(
+      "[빈] ✅ 매도 접수",
+      `${symbol} ${qty}주 @ ${result.fillPrice?.toLocaleString() ?? "-"} (Order ID: ${result.orderId})`,
     );
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `매도 요청 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 매도 요청 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 

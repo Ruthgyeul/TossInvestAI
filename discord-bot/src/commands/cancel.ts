@@ -1,6 +1,7 @@
 // /cancel {orderId} — 미체결 주문 취소 (docs/DISCORD.md)
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 
+import { buildErrorEmbed, buildInfoEmbed } from "../embeds/info.js";
 import { cancelOrder } from "../lib/coreClient.js";
 import type { BotCommand } from "./types.js";
 
@@ -14,11 +15,13 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
 
   try {
     const result = await cancelOrder(orderId);
-    await interaction.reply(
-      result.success ? `✅ 주문 취소 완료: ${orderId}` : `⚠️ 취소 실패: ${result.reason ?? "알 수 없는 사유"}`,
-    );
+    const embed = result.success
+      ? buildInfoEmbed("[빈] ✅ 주문 취소 완료", orderId)
+      : buildErrorEmbed("[빈] ⚠️ 취소 실패", result.reason ?? "알 수 없는 사유");
+    await interaction.reply({ embeds: [embed] });
   } catch (err) {
-    await interaction.reply({ content: `취소 요청 실패: ${(err as Error).message}`, ephemeral: true });
+    const embed = buildErrorEmbed("[빈] ⚠️ 취소 요청 실패", (err as Error).message);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
 
