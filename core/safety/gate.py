@@ -4,7 +4,11 @@
 """
 
 from core.config import settings
+from core.db import store as db
+from core.events import calendar
+from core.fund.manager import fund_manager
 from core.models import GateResult, Order, RunMode
+from core.toss import market as toss_market
 
 
 class SafetyGate:
@@ -66,29 +70,31 @@ class SafetyGate:
         return GateResult.approve()
 
     async def _get_daily_loss(self, mode: RunMode) -> int:
-        raise NotImplementedError
+        """LIVE → trades, SIMULATION → simulation_daily_pnl 기준 (docs/SAFETY.md)."""
+        return await db.get_daily_loss(mode)
 
     async def _get_position_ratio(self, symbol: str, mode: RunMode) -> float:
-        raise NotImplementedError
+        """SIMULATION에서는 FundManager가 가상 포지션 기준으로 계산한다."""
+        return await fund_manager.get_position_ratio(symbol)
 
     async def _get_cash_buffer(self, mode: RunMode) -> float:
-        raise NotImplementedError
+        return await fund_manager.get_cash_buffer_krw()
 
     async def _get_stock_warnings(self, symbol: str) -> dict:
-        raise NotImplementedError
+        return await toss_market.get_stock_warnings(symbol)
 
     async def _is_market_open(self, market: str) -> bool:
         """core/toss/market.py의 `is_market_open`으로 위임 — Redis `market_open:{market}` 캐시 공유."""
-        raise NotImplementedError
+        return await toss_market.is_market_open(market)  # type: ignore[arg-type]
 
     async def _is_regular_session(self, market: str) -> bool:
-        raise NotImplementedError
+        return await toss_market.is_regular_session(market)  # type: ignore[arg-type]
 
     async def _order_id_exists(self, client_order_id: str) -> bool:
-        raise NotImplementedError
+        return await db.order_id_exists(client_order_id)
 
     async def _has_high_risk_event_today(self) -> bool:
-        raise NotImplementedError
+        return await calendar.has_high_risk_event_today()
 
 
 safety_gate = SafetyGate()

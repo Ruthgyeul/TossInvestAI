@@ -24,3 +24,8 @@ async def order_id_exists(client_order_id: str) -> bool:
 
 async def get_api_usage_month_krw(mode: Mode = "LIVE") -> int:
     raise NotImplementedError
+
+
+async def get_weekly_net_profit_krw(mode: Mode = "LIVE") -> int:
+    """FundManager.weekly_rebalance에서 사용. 전주 실현 손익 + 평가 손익 변화 합산."""
+    raise NotImplementedError
