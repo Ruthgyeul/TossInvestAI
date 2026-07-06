@@ -69,8 +69,13 @@ async def _build_state_snapshot(market: Market) -> StateSnapshot:
 
 
 def _infer_model_used(decision: Decision) -> str:
-    """rule_based_filter가 생성한 결정인지 추정한다 (decision.py `_rule_decision` 사유 문구 기준)."""
-    if decision.confidence == 1.0 and "구간" in decision.reason:
+    """rule_based_filter가 생성한 결정인지 추정한다.
+
+    core/strategy/base.py `BaseStrategy.make_decision`은 항상 confidence=1.0을 쓰고,
+    Claude/DeepSeek는 프롬프트상 confidence를 임의의 0~1 실수로 반환하므로 정확히 1.0이
+    나올 확률은 낮다 — 완벽하진 않지만 별도 필드 없이 쓸 수 있는 실용적인 추정치다.
+    """
+    if decision.confidence == 1.0:
         return "rule_based"
     return settings.CLAUDE_MODEL
 

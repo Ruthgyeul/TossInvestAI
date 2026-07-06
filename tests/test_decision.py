@@ -50,7 +50,7 @@ async def test_rule_based_filter_skips_claude_call(
 async def test_rule_based_filter_returns_none_when_signal_unclear() -> None:
     state = _make_state(prices={"005930": {"price": 75_000, "rsi_14": 50.0}})
 
-    assert decision_module.rule_based_filter(state) is None
+    assert await decision_module.rule_based_filter(state) is None
 
 
 @pytest.mark.asyncio
