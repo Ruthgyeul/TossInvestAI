@@ -11,32 +11,31 @@ class _FakeResponse:
         self.text = text
 
 
-class _FakeGenerativeModel:
-    captured_model_name: str | None = None
-    captured_prompt: str | None = None
+class _Captured:
+    model: str | None = None
+    contents: str | None = None
 
-    def __init__(self, model_name: str) -> None:
-        _FakeGenerativeModel.captured_model_name = model_name
 
-    async def generate_content_async(self, prompt: str) -> _FakeResponse:
-        _FakeGenerativeModel.captured_prompt = prompt
-        return _FakeResponse("  삼성전자 3분기 실적 호조 전망, 반도체 업황 개선 기대  ")
+async def _fake_generate_content(model: str, contents: str) -> _FakeResponse:
+    _Captured.model = model
+    _Captured.contents = contents
+    return _FakeResponse("  삼성전자 3분기 실적 호조 전망, 반도체 업황 개선 기대  ")
 
 
 @pytest.mark.asyncio
 async def test_summarize_news_returns_stripped_gemini_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(gemini_module.genai, "GenerativeModel", _FakeGenerativeModel)
+    monkeypatch.setattr(gemini_module._client.aio.models, "generate_content", _fake_generate_content)
 
     result = await gemini_gateway.summarize_news(
         ["삼성전자, 3분기 영업이익 컨센서스 상회", "반도체 업황 개선 신호"]
     )
 
     assert result == "삼성전자 3분기 실적 호조 전망, 반도체 업황 개선 기대"
-    assert _FakeGenerativeModel.captured_model_name == gemini_module.settings.GEMINI_MODEL
-    assert "삼성전자, 3분기 영업이익 컨센서스 상회" in _FakeGenerativeModel.captured_prompt
-    assert "반도체 업황 개선 신호" in _FakeGenerativeModel.captured_prompt
+    assert _Captured.model == gemini_module.settings.GEMINI_MODEL
+    assert "삼성전자, 3분기 영업이익 컨센서스 상회" in _Captured.contents
+    assert "반도체 업황 개선 신호" in _Captured.contents
 
 
 @pytest.mark.asyncio
