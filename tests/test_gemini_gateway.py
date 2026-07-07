@@ -7,7 +7,7 @@ from core.gateway.gemini import gemini_gateway
 
 
 class _FakeResponse:
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str | None) -> None:
         self.text = text
 
 
@@ -43,7 +43,7 @@ async def test_summarize_news_raises_value_error_when_response_text_is_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _fake_generate_content_no_text(model: str, contents: str) -> _FakeResponse:
-        return _FakeResponse(None)  # type: ignore[arg-type]
+        return _FakeResponse(None)
 
     monkeypatch.setattr(
         gemini_module._client.aio.models, "generate_content", _fake_generate_content_no_text
