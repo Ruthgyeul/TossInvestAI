@@ -47,7 +47,9 @@
 | 통화쌍 | 현재 | 등락 |
 |--------|------|------|
 | USD/KRW | | |
-| USD/JPY | | |
+
+토스증권 API는 USD/KRW 환율만 제공한다(`GET /api/v1/exchange-rate`, docs/TOSS_API.md) —
+JPY 등 다른 통화쌍 엔드포인트가 없어 표기하지 않는다.
 
 ### 4. 공포탐욕지수 (Fear & Greed Index)
 - 관심 종목 등락 비율(advance/decline breadth) 기반 0~100 대체 지표

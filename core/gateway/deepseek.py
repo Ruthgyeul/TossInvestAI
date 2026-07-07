@@ -25,7 +25,7 @@ class DeepSeekGateway(AIGateway):
             model=settings.DEEPSEEK_MODEL,
             max_tokens=settings.DEEPSEEK_MAX_TOKENS,
             messages=[
-                {"role": "system", "content": load_system_prompt(state.market)},
+                {"role": "system", "content": load_system_prompt(state.prompt_version)},
                 {
                     "role": "user",
                     "content": (

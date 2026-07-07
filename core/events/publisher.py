@@ -4,7 +4,7 @@ discord-bot의 eventSubscriber.ts가 이 채널을 구독해 event_type별로 Em
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from core.db.redis import get_redis
@@ -39,7 +39,7 @@ async def publish_event(
         "mode": mode,
         "market": market,
         "correlation_id": correlation_id,
-        "published_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": datetime.now(UTC).isoformat(),
         "payload": payload,
     }
     redis = get_redis()

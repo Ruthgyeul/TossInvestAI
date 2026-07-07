@@ -103,7 +103,7 @@ docs/
 ├── BIN.md                 ← 빈(Bin) 정체성, 트레이딩 루프, AI Gateway, Prompt Caching
 ├── DISCORD.md             ← 채널 구성, Slash 명령어, Embed 포맷, TS 구현
 ├── REPORT.md              ← 리포트 스케줄(6회/일), 필수 항목, matplotlib 그래프
-├── SAFETY.md              ← Safety Gate 10개 조건, 긴급 정지, 하드 금지 사항
+├── SAFETY.md              ← Safety Gate 11개 조건, 긴급 정지, 하드 금지 사항
 ├── LOGGING.md             ← 거래 로그 포맷, 에러 로그, DB 백업, 헬스 모니터링
 ├── FUND_MANAGER.md        ← 자금 배분, 수익 재배분, API 비용 추적
 ├── TOSS_API.md            ← 토스증권 API 전체 스펙, Rate Limit, 에러 코드

@@ -1,6 +1,6 @@
 """리포트 텍스트 생성 — 하루 6회 정기 리포트 + 즉시 리포트 (docs/REPORT.md)."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -11,6 +11,7 @@ from core.config import settings
 from core.db import store as db
 from core.events.publisher import publish_event
 from core.fund.manager import fund_manager
+from core.market_data import indicators
 from core.market_data.collector import collect_market_snapshot
 from core.market_data.watchlist import get_watchlist
 from core.models import Market
@@ -167,25 +168,121 @@ async def generate_report(market: Market, report_type: ReportType) -> str:
     return "\n".join(lines)
 
 
+def _weekly_trade_metrics(all_trades: list[dict], week_ago: datetime) -> dict:
+    """docs/REPORT.md "일일·주간·월간 성과 지표" — 승률·평균 수익률·최대 손익·수익 팩터·
+    평균 보유 기간을 이번 주(최근 7일) 체결 내역으로 계산한다.
+
+    수익률(%)은 거래별로 저장돼 있지 않아 `pnl_krw`와 체결 대금으로 원가를 역산한다
+    (원가 = 대금 - 손익, 수익률 = 손익 / 원가) — Position의 가중평균단가 기준 실현손익과
+    일치한다. 평균 보유 기간은 조회 기간 이전에 열린 매수 lot도 매칭해야 하므로
+    `all_trades`(전체 이력)를 받아 FIFO로 계산한다.
+    """
+    week_trades = [t for t in all_trades if t["created_at"] >= week_ago]
+    buys = [t for t in week_trades if t["action"] == "BUY"]
+    sells = [t for t in week_trades if t["action"] == "SELL" and t["pnl_krw"] is not None]
+
+    returns: list[tuple[str, float]] = []
+    for t in sells:
+        notional = float(t["fill_price"]) * t["quantity"]
+        cost_basis = notional - t["pnl_krw"]
+        pct = (t["pnl_krw"] / cost_basis) if cost_basis else 0.0
+        returns.append((t["symbol"], pct))
+
+    win_count = sum(1 for _, pct in returns if pct > 0)
+    losers = [r for r in returns if r[1] < 0]
+    winners = [r for r in returns if r[1] > 0]
+
+    gross_profit = sum(t["pnl_krw"] for t in sells if t["pnl_krw"] > 0)
+    gross_loss = abs(sum(t["pnl_krw"] for t in sells if t["pnl_krw"] < 0))
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    else:
+        # 손실 거래가 없으면 비율이 정의되지 않는다 — core/strategy/backtest.py와 동일한
+        # 유한한 상한값 표기 규칙을 따른다.
+        profit_factor = 999.0 if gross_profit > 0 else 0.0
+
+    return {
+        "total_count": len(week_trades),
+        "buy_count": len(buys),
+        "sell_count": len(sells),
+        "win_rate": win_count / len(returns) if returns else 0.0,
+        "avg_return": sum(pct for _, pct in returns) / len(returns) if returns else 0.0,
+        "max_win": max(winners, key=lambda r: r[1]) if winners else None,
+        "max_loss": min(losers, key=lambda r: r[1]) if losers else None,
+        "profit_factor": profit_factor,
+        "avg_holding_days": indicators.calculate_avg_holding_days(all_trades, since=week_ago),
+    }
+
+
+def _next_week_direction(metrics: dict, mdd: float) -> str:
+    """규칙 기반 다음 주 전략 방향 — 리포트 조회는 별도 Claude 호출 없이 처리한다
+    (CLAUDE.md 절대 규칙 5)."""
+    if metrics["sell_count"] == 0:
+        return "이번 주 체결된 매도가 없어 성과 평가 보류 — 관심 종목 신호 관찰을 지속한다."
+    if metrics["win_rate"] < 0.4 or mdd < -0.10:
+        return "승률·낙폭이 저하됐다 — 신규 진입 조건을 보수적으로 조정하고 RSI 임계값을 재검토한다."
+    if metrics["win_rate"] >= 0.6:
+        return "현재 규칙 기반 필터를 유지하고 관심 종목 확대를 검토한다."
+    return "현재 전략을 유지하며 지표 추이를 관찰한다."
+
+
 async def generate_weekly_report() -> str:
-    """매주 월요일 장 시작 전 발송되는 주간 성과 리포트."""
+    """매주 월요일 장 시작 전 발송되는 주간 성과 리포트 (docs/REPORT.md "주간 성과 리포트")."""
     mode: Literal["LIVE", "SIMULATION"] = "LIVE" if settings.run_mode == "LIVE" else "SIMULATION"
     portfolio = await fund_manager.get_portfolio_status(mode)
     rebalance = await fund_manager.weekly_rebalance(mode)
     now = datetime.now(_KST)
+    week_ago = datetime.now(UTC) - timedelta(days=7)
+
+    all_trades = await db.get_all_trades(mode)
+    metrics = _weekly_trade_metrics(all_trades, week_ago)
+
+    snapshots = (
+        await db.get_recent_live_snapshots(limit=2000)
+        if mode == "LIVE"
+        else await db.get_recent_simulation_snapshots(limit=2000)
+    )
+    week_values = [
+        float(s["total_value_krw"]) for s in snapshots if s["snapshot_at"] >= week_ago
+    ]
+    mdd = indicators.calculate_max_drawdown_pct(week_values)
+    sharpe = indicators.calculate_sharpe_ratio(week_values)
+
+    max_win_str = (
+        f"{metrics['max_win'][1]:+.1%} ({metrics['max_win'][0]})" if metrics["max_win"] else "해당 없음"
+    )
+    max_loss_str = (
+        f"{metrics['max_loss'][1]:+.1%} ({metrics['max_loss'][0]})"
+        if metrics["max_loss"]
+        else "해당 없음"
+    )
 
     return "\n".join(
         [
             f"# [빈] 주간 성과 리포트 — {now:%Y-%m-%d}",
             "",
-            f"총 자산: {portfolio['totalValueKrw']:,} KRW",
-            f"누적 수익률: {portfolio['cumulativePnlPct']:+.2%} ({portfolio['cumulativePnlKrw']:+,} KRW)",
-            f"오늘 실현 손익: {portfolio['todayPnlKrw']:+,} KRW",
+            "## 이번 주 거래 요약",
+            f"총 거래 횟수    {metrics['total_count']}회 (매수 {metrics['buy_count']} / 매도 {metrics['sell_count']})",
+            f"승률            {metrics['win_rate']:.1%}",
+            f"평균 수익률     {metrics['avg_return']:+.2%}",
+            f"최대 단일 손실  {max_loss_str}",
+            f"최대 단일 수익  {max_win_str}",
+            "",
+            "## 성과 지표",
+            f"MDD (최대 낙폭)   {mdd:.1%}",
+            f"샤프 지수         {sharpe:.2f}",
+            f"수익 팩터         {metrics['profit_factor']:.2f}",
+            f"평균 보유 기간    {metrics['avg_holding_days']:.1f}일",
+            f"누적 수익률       {portfolio['cumulativePnlPct']:+.2%} ({portfolio['cumulativePnlKrw']:+,} KRW)",
             "",
             "## 자금 정산",
-            f"Claude API 비용 충당    {rebalance.api_cost_covered_krw:,} KRW",
-            f"운용 자금 재투자        {rebalance.reinvested_krw:,} KRW",
-            f"현금 버퍼 적립          {rebalance.buffer_added_krw:,} KRW",
+            f"운용 자금         {await fund_manager.get_operating_funds_krw(mode):,.0f} KRW",
+            f"현금 버퍼         {portfolio['cashBufferKrw']:,} KRW",
+            f"Claude API 비용   -{rebalance.api_cost_covered_krw:,} KRW",
+            f"순수익 재투자     +{rebalance.reinvested_krw:,} KRW",
+            "",
+            "## 다음 주 전략 방향",
+            _next_week_direction(metrics, mdd),
         ]
     )
 

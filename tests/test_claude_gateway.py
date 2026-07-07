@@ -35,9 +35,9 @@ def _make_state(market: str = "KR") -> StateSnapshot:
     )
 
 
-def test_load_system_prompt_reads_market_specific_file() -> None:
-    assert "한국장(KRX)" in load_system_prompt("KR")
-    assert "미국장" in load_system_prompt("US")
+def test_load_system_prompt_reads_versioned_file() -> None:
+    assert "한국장(KRX)" in load_system_prompt("system_kr_v1")
+    assert "미국장" in load_system_prompt("system_us_v1")
 
 
 @pytest.mark.asyncio

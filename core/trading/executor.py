@@ -202,6 +202,7 @@ async def _execute_live(
             "action": order.action,
             "quantity": order.quantity,
             "fillPrice": fill_price,
+            "totalAmountKrw": fill_price * order.quantity,
             "commissionKrw": commission,
             "reason": decision.reason,
             "decisionId": decision.decision_id,
@@ -225,6 +226,7 @@ async def _execute_simulation(
     order_id = f"{prefix}-{datetime.now(_KST):%Y%m%d}-{order.market}-{toss_order.generate_client_order_id(order.market)[-6:]}"
 
     notional = fill_price * order.quantity
+    avg_price: float | None = None
     if mode.mode == "DRY_RUN":
         pnl_krw = None
         balance_change_krw = -(notional + commission) if order.action == "BUY" else notional - commission
@@ -236,6 +238,9 @@ async def _execute_simulation(
             pnl_krw = None
             balance_change_krw = -(notional + commission)
         else:
+            # apply_sell이 전량 청산 시 포지션을 삭제하므로 매도 처리 전에 평균단가를 읽어둔다
+            # (Discord 매도 알림 embed의 "평균단가" 필드용, docs/DISCORD.md).
+            avg_price = portfolio.positions[order.symbol].avg_price
             pnl_krw = await portfolio.apply_sell(order.symbol, order.quantity, fill_price, commission)
             balance_change_krw = notional - commission
 
@@ -275,8 +280,11 @@ async def _execute_simulation(
             "action": order.action,
             "quantity": order.quantity,
             "fillPrice": fill_price,
+            "totalAmountKrw": notional,
             "commissionKrw": commission,
             "pnlKrw": pnl_krw,
+            "avgPrice": avg_price,
+            "balanceChangeKrw": balance_change_krw,
             "reason": decision.reason,
             "decisionId": decision.decision_id,
             "orderId": order_id,

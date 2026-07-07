@@ -8,7 +8,7 @@ import json
 import re
 import uuid
 from abc import ABC, abstractmethod
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 from core.models import Decision, StateSnapshot
@@ -25,11 +25,21 @@ class AIGateway(ABC):
     async def summarize_news(self, articles: list[str]) -> str: ...
 
 
-@lru_cache(maxsize=None)
-def load_system_prompt(market: str) -> str:
-    """L1 — prompts/system_kr.md 또는 system_us.md (docs/BIN.md)."""
-    filename = "system_kr.md" if market == "KR" else "system_us.md"
-    return (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
+@cache
+def load_system_prompt(prompt_version: str) -> str:
+    """L1 — `prompt_version`이 곧 파일명이다 (예: `system_kr_v1` → prompts/system_kr_v1.md).
+
+    docs/SELF_IMPROVEMENT.md "버전 관리 및 롤백"이 요구하는 대로 프롬프트 파일명에 항상
+    버전이 드러나야 하며, `strategy_versions.prompt_version`에 저장된 값을 그대로 파일명으로
+    사용해 별도 마이그레이션 없이 배포된 버전의 파일을 로드한다.
+    """
+    return (_PROMPTS_DIR / f"{prompt_version}.md").read_text(encoding="utf-8")
+
+
+@cache
+def load_reflection_prompt() -> str:
+    """prompts/reflection.md — core/trading/reflection.py 자기평가 시스템 프롬프트."""
+    return (_PROMPTS_DIR / "reflection.md").read_text(encoding="utf-8")
 
 
 def build_realtime_block(state: StateSnapshot) -> str:

@@ -4,7 +4,7 @@ INITIAL_SEED_KRW는 손익 계산 기준점이므로 최초 설정 이후 절대
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.config import settings
 from core.db import store as db
@@ -259,7 +259,7 @@ class FundManager:
             "cashBufferKrw": int(total_value_krw * settings.CASH_BUFFER_RATIO),
             "cashKrw": int(cash),
             "holdings": holdings,
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(UTC).isoformat(),
         }
 
 

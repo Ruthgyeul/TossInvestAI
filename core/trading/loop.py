@@ -1,7 +1,7 @@
 """KR·US 트레이딩 루프 진입점. APScheduler가 시장별로 독립 실행한다 (docs/BIN.md)."""
 
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -23,8 +23,20 @@ _KST = ZoneInfo("Asia/Seoul")
 _STRATEGY_VERSION = "v1.0.0"
 
 
-def _prompt_version(market: Market) -> str:
-    return "system_kr_v1" if market == "KR" else "system_us_v1"
+_DEFAULT_PROMPT_VERSION: dict[Market, str] = {"KR": "system_kr_v1", "US": "system_us_v1"}
+
+
+async def _prompt_version(market: Market) -> str:
+    """개발자가 `/version approve`로 승인·배포한 버전의 `prompt_version`을 사용한다 —
+    없으면 기본 v1 파일로 (docs/SELF_IMPROVEMENT.md "버전 관리 및 롤백").
+
+    파일 자체는 `core/trading/prompts/{prompt_version}.md`로 개발자가 직접 배치하므로,
+    승인만으로 다음 루프 틱부터 해당 프롬프트가 즉시 반영된다.
+    """
+    deployed = await db.get_latest_deployed_strategy_version(market)
+    if deployed is not None:
+        return deployed["prompt_version"]
+    return _DEFAULT_PROMPT_VERSION[market]
 
 
 def _holding_entry(raw: dict) -> dict:
@@ -51,7 +63,7 @@ async def _build_state_snapshot(market: Market) -> StateSnapshot:
         market=market,
         mode=settings.run_mode,
         strategy_version=_STRATEGY_VERSION,
-        prompt_version=_prompt_version(market),
+        prompt_version=await _prompt_version(market),
         timestamp=datetime.now(_KST).isoformat(),
         exchange_rate_krw_usd=snapshot["exchange_rate_krw_usd"],
         prices=snapshot["prices"],
@@ -169,7 +181,7 @@ async def publish_status_update() -> None:
         {
             "total_value_krw": simulation_status["totalValueKrw"],
             "cash_krw": simulation_status["cashKrw"],
-            "snapshot_at": datetime.now(timezone.utc),
+            "snapshot_at": datetime.now(UTC),
         },
     )
     # LIVE도 동일하게 적재해야 core/report/generator.py의 자산 추이·수익률 차트가
@@ -180,7 +192,7 @@ async def publish_status_update() -> None:
             {
                 "total_value_krw": live_status["totalValueKrw"],
                 "cash_krw": live_status["cashKrw"],
-                "snapshot_at": datetime.now(timezone.utc),
+                "snapshot_at": datetime.now(UTC),
             },
         )
 

@@ -1,6 +1,7 @@
 """Toss API 클라이언트 Rate Limit·인증·재시도 단위 테스트 (docs/TOSS_API.md)."""
 
-from datetime import datetime, time as dtime
+from datetime import datetime
+from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
 import pytest

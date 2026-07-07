@@ -65,17 +65,74 @@ async def test_build_state_snapshot_wires_popular_and_fear_greed_from_collector(
     async def _estimated_api_cost_krw():
         return 0.0
 
+    async def _get_latest_deployed_strategy_version(market):  # noqa: ANN001
+        return None
+
     monkeypatch.setattr(loop, "get_watchlist", _get_watchlist)
     monkeypatch.setattr(loop, "collect_market_snapshot", _collect_market_snapshot)
     monkeypatch.setattr(loop.calendar, "get_events_today", _get_events_today)
     monkeypatch.setattr(loop.fund_manager, "get_portfolio_status", _get_portfolio_status)
     monkeypatch.setattr(loop.fund_manager, "get_operating_funds_krw", _get_operating_funds_krw)
     monkeypatch.setattr(loop.fund_manager, "estimated_api_cost_krw", _estimated_api_cost_krw)
+    monkeypatch.setattr(
+        loop.db, "get_latest_deployed_strategy_version", _get_latest_deployed_strategy_version
+    )
 
     state = await loop._build_state_snapshot("KR")
 
     assert state.toss_popular_top10 == ["005930", "000660"]
     assert state.fear_greed_index == 62
+    assert state.prompt_version == "system_kr_v1"
+
+
+@pytest.mark.asyncio
+async def test_build_state_snapshot_uses_deployed_prompt_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """개발자가 `/version approve`로 승인한 버전이 있으면 기본 v1이 아니라 그 버전을 써야
+    한다 (docs/SELF_IMPROVEMENT.md "버전 관리 및 롤백")."""
+
+    async def _get_watchlist(market):  # noqa: ANN001
+        return []
+
+    async def _collect_market_snapshot(market, symbols):  # noqa: ANN001
+        return {
+            "prices": {},
+            "holdings": [],
+            "buying_power": 0,
+            "exchange_rate_krw_usd": 1382.5,
+            "toss_popular_top10": [],
+            "fear_greed_index": None,
+        }
+
+    async def _get_events_today(market):  # noqa: ANN001
+        return []
+
+    async def _get_portfolio_status(mode):  # noqa: ANN001
+        return {"totalValueKrw": 500_000, "cashBufferKrw": 75_000, "todayPnlKrw": 0}
+
+    async def _get_operating_funds_krw(mode):  # noqa: ANN001
+        return 425_000.0
+
+    async def _estimated_api_cost_krw():
+        return 0.0
+
+    async def _get_latest_deployed_strategy_version(market):  # noqa: ANN001
+        return {"prompt_version": "system_kr_v2"}
+
+    monkeypatch.setattr(loop, "get_watchlist", _get_watchlist)
+    monkeypatch.setattr(loop, "collect_market_snapshot", _collect_market_snapshot)
+    monkeypatch.setattr(loop.calendar, "get_events_today", _get_events_today)
+    monkeypatch.setattr(loop.fund_manager, "get_portfolio_status", _get_portfolio_status)
+    monkeypatch.setattr(loop.fund_manager, "get_operating_funds_krw", _get_operating_funds_krw)
+    monkeypatch.setattr(loop.fund_manager, "estimated_api_cost_krw", _estimated_api_cost_krw)
+    monkeypatch.setattr(
+        loop.db, "get_latest_deployed_strategy_version", _get_latest_deployed_strategy_version
+    )
+
+    state = await loop._build_state_snapshot("KR")
+
+    assert state.prompt_version == "system_kr_v2"
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,10 @@
 """bin-core.service 진입점. 트레이딩 스케줄러 + 내부 HTTP API 서버를 한 프로세스에서 기동한다."""
 
 import asyncio
+from datetime import UTC, datetime
 
 import structlog
 from aiohttp import web
-
-from datetime import datetime, timezone
 
 from core.api.server import create_app
 from core.config import settings
@@ -47,7 +46,7 @@ async def _restore_simulation_clock() -> None:
         return
     started_at = await get_simulation_started_at()
     if started_at is None:
-        await set_simulation_started_at(datetime.now(timezone.utc))
+        await set_simulation_started_at(datetime.now(UTC))
 
 
 async def main() -> None:

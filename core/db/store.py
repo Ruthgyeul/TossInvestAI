@@ -1,9 +1,9 @@
 """CRUD 함수. core/db/models.py의 테이블에 대한 단일 접근 경로 (asyncpg + SQLAlchemy async)."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -20,7 +20,6 @@ from core.db.models import (
     FundRebalance,
     LivePortfolioSnapshot,
     MarketEvent,
-    Order as OrderRow,
     PaperTrade,
     Reflection,
     SafetyRejection,
@@ -31,6 +30,9 @@ from core.db.models import (
     StrategyVersion,
     Trade,
     Watchlist,
+)
+from core.db.models import (
+    Order as OrderRow,
 )
 from core.models import Market, Mode, RunMode
 
@@ -98,7 +100,7 @@ async def insert(table: str, values: dict[str, Any]) -> dict[str, Any]:
     model = _model_for(table)
     row = dict(values)
     if hasattr(model, "created_at") and "created_at" not in row:
-        row["created_at"] = datetime.now(timezone.utc)
+        row["created_at"] = datetime.now(UTC)
 
     async with _session() as session:
         obj = model(**row)
@@ -171,7 +173,7 @@ def _trade_model_for_mode(mode: Mode) -> type[DeclarativeBase]:
 async def get_today_realized_pnl_krw(mode: Mode) -> int:
     """오늘(KST 자정 이후, UTC 기준 근사) 실현 손익 합계 — 부호를 포함한다."""
     model = _trade_model_for_mode(mode)
-    today_start_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with _session() as session:
         stmt = select(model).where(model.created_at >= today_start_utc)  # type: ignore[attr-defined]
@@ -196,7 +198,7 @@ async def order_id_exists(client_order_id: str) -> bool:
 
 async def get_api_usage_month_summary() -> dict[str, Any]:
     """ApiUsage는 mode 컬럼이 없다 — 이번 달 전체 Claude API 호출·비용을 합산한다."""
-    month_start = datetime.now(timezone.utc).replace(
+    month_start = datetime.now(UTC).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
 
@@ -220,7 +222,7 @@ async def get_api_usage_month_krw(mode: Mode = "LIVE") -> int:
 async def get_today_trades(mode: Mode, market: Market) -> list[dict[str, Any]]:
     """core/trading/reflection.py에서 사용. 오늘(KST 자정 이후, UTC 기준 근사) 체결 내역."""
     model = _trade_model_for_mode(mode)
-    today_start_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with _session() as session:
         stmt = select(model).where(
@@ -235,7 +237,7 @@ async def get_today_trades(mode: Mode, market: Market) -> list[dict[str, Any]]:
 
 async def get_today_rejections(market: Market) -> list[dict[str, Any]]:
     """core/trading/reflection.py에서 사용. 오늘(KST 자정 이후, UTC 기준 근사) Safety Gate 거부 내역."""
-    today_start_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with _session() as session:
         stmt = select(SafetyRejection).where(
@@ -248,10 +250,23 @@ async def get_today_rejections(market: Market) -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
+async def get_all_trades(mode: Mode) -> list[dict[str, Any]]:
+    """core/report/generator.py 주간 성과 리포트 — FIFO 보유기간 계산은 조회 기간 이전에
+    열린 매수 lot도 매칭해야 하므로 전체 이력을 오래된 순으로 반환한다."""
+    model = _trade_model_for_mode(mode)
+
+    async with _session() as session:
+        stmt = select(model).order_by(model.created_at.asc())  # type: ignore[attr-defined]
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+    return [_row_to_dict(row) for row in rows]
+
+
 async def get_weekly_net_profit_krw(mode: Mode = "LIVE") -> int:
     """FundManager.weekly_rebalance에서 사용. 최근 7일 실현 손익 합계."""
     model = _trade_model_for_mode(mode)
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    week_ago = datetime.now(UTC) - timedelta(days=7)
 
     async with _session() as session:
         stmt = select(model).where(model.created_at >= week_ago)  # type: ignore[attr-defined]
@@ -286,7 +301,7 @@ async def set_control_flags(
         emergency_stop=emergency_stop,
         kr_stop=kr_stop,
         us_stop=us_stop,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["id"],
@@ -314,7 +329,7 @@ async def set_simulation_started_at(started_at: datetime | None) -> None:
     """SIMULATION 시작 시각을 기록/초기화한다. 프로세스 재시작으로 리허설 기간이
     소리 없이 리셋되지 않도록 DB에 영속화한다."""
     stmt = pg_insert(ControlFlags).values(
-        id=1, simulation_started_at=started_at, updated_at=datetime.now(timezone.utc)
+        id=1, simulation_started_at=started_at, updated_at=datetime.now(UTC)
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["id"],
@@ -354,7 +369,7 @@ async def get_long_term_memory(market: Market) -> dict[str, Any]:
     30일 거래 히스토리(trade_count, win_rate) · 최근 reflections 요약(reflection_summary) ·
     종목별 수익 통계(symbol_stats)를 조회해 반환한다.
     """
-    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
 
     async with _session() as session:
         trades: Sequence[Any] = []
@@ -431,7 +446,7 @@ async def approve_strategy_version(version_id: int, approved_by: str) -> dict[st
         if row is None:
             return None
         row.approved_by = approved_by
-        row.deployed_at = datetime.now(timezone.utc)
+        row.deployed_at = datetime.now(UTC)
         await session.commit()
         await session.refresh(row)
         return _row_to_dict(row)

@@ -70,7 +70,7 @@ class Decision:
 
 ```python
 # core/config.py — 모든 설정의 단일 진입점
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from datetime import date
 
 class Settings(BaseSettings):
@@ -121,8 +121,7 @@ class Settings(BaseSettings):
     def claude_output_price_per_mtok(self) -> float:
         return 10.0 if date.today().isoformat() <= "2026-08-31" else 15.0
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
 ```
@@ -277,7 +276,7 @@ openai>=1.0                  # DeepSeek (OpenAI 호환)
 
 # 설정·비동기·DB
 pydantic-settings>=2.0
-aiohttp>=3.9
+aiohttp>=3.9,<3.10           # aioresponses 목업이 3.10+과 호환되지 않음 (requirements.txt)
 asyncpg>=0.29
 redis[asyncio]>=5.0
 SQLAlchemy[asyncio]>=2.0

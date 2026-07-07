@@ -137,6 +137,61 @@ async def test_simulation_buy_fills_at_current_price_and_updates_portfolio(
     assert inserted[0][1]["pnl_krw"] is None
     assert published[0][0] == "trade_executed"
     assert published[0][1]["fillPrice"] == 75_000
+    assert published[0][1]["totalAmountKrw"] == 150_000
+    assert published[0][1]["balanceChangeKrw"] == -150_150
+    assert published[0][1]["avgPrice"] is None
+
+
+@pytest.mark.asyncio
+async def test_simulation_sell_reports_avg_price_and_balance_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/DISCORD.md 매도 알림 embed의 "평균단가" 필드 — 매도 처리 전 포지션 평균단가를
+    Discord 이벤트 payload로 전달해야 한다 (예전에는 avgPrice가 아예 없었다)."""
+    published: list[tuple[str, dict]] = []
+
+    class _FakePosition:
+        avg_price = 74_800.0
+
+    class _FakePortfolio:
+        positions = {"005930": _FakePosition()}
+
+        async def apply_sell(self, symbol, qty, fill_price, commission):  # noqa: ANN001
+            return 2_572
+
+    async def _approve(order, mode):  # noqa: ANN001
+        return GateResult.approve()
+
+    async def _get_price(symbol):  # noqa: ANN001
+        return {"price": 76_200}
+
+    async def _get_commissions(market):  # noqa: ANN001
+        return {"rate": 0.001}
+
+    async def _insert(table, values):  # noqa: ANN001
+        return values
+
+    async def _publish(event_type, *, mode, market, payload, correlation_id=None):  # noqa: ANN001
+        published.append((event_type, payload))
+
+    async def _get_portfolio():
+        return _FakePortfolio()
+
+    monkeypatch.setattr(executor.safety_gate, "check", _approve)
+    monkeypatch.setattr(executor.toss_market, "get_price", _get_price)
+    monkeypatch.setattr(executor.toss_account, "get_commissions", _get_commissions)
+    monkeypatch.setattr(executor.db, "insert", _insert)
+    monkeypatch.setattr(executor, "publish_event", _publish)
+    monkeypatch.setattr(executor, "_get_simulation_portfolio", _get_portfolio)
+
+    decision = _make_decision(action="SELL")
+    result = await executor.execute(decision, RunMode(mode="SIMULATION", market="KR"))
+
+    assert result.filled is True
+    assert published[0][1]["avgPrice"] == 74_800.0
+    assert published[0][1]["pnlKrw"] == 2_572
+    assert published[0][1]["totalAmountKrw"] == 152_400
+    assert published[0][1]["balanceChangeKrw"] == 152_400 - published[0][1]["commissionKrw"]
 
 
 @pytest.mark.asyncio
@@ -239,6 +294,7 @@ async def test_live_execution_places_order_via_toss_and_records_trade(
         },
     )
     assert published[0][0] == "trade_executed"
+    assert published[0][1]["totalAmountKrw"] == 149_600.0
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@
 Claude 호출을 만들지 않는다(하드 금지 사항 마지막 항목).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import structlog
@@ -87,7 +87,7 @@ async def propose_candidate(market: Market, proposed_change: str) -> dict | None
             "change_summary": proposed_change,
             "backtest_result": backtest_result_payload,
             "approved_by": None,
-            "proposed_at": datetime.now(timezone.utc),
+            "proposed_at": datetime.now(UTC),
             "deployed_at": None,
         },
     )
