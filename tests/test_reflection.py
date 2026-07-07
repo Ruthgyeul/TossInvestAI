@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import anthropic
 import pytest
 
+import core.gateway.claude as claude_module
 import core.trading.reflection as reflection_module
 from core.config import settings
 
@@ -31,7 +32,12 @@ async def test_run_reflection_calls_claude_saves_db_and_file_and_publishes_event
     monkeypatch.setattr(reflection_module.db, "get_today_trades", _get_today_trades)
     monkeypatch.setattr(reflection_module.db, "get_today_rejections", _get_today_rejections)
 
-    fake_usage = SimpleNamespace(input_tokens=500, output_tokens=150)
+    fake_usage = SimpleNamespace(
+        input_tokens=500,
+        output_tokens=150,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     fake_response = SimpleNamespace(
         content=[anthropic.types.TextBlock(text="1. 적절했음\n2. 없음\n3. 옳았음\n4. 없음", type="text")],
         usage=fake_usage,
@@ -40,7 +46,7 @@ async def test_run_reflection_calls_claude_saves_db_and_file_and_publishes_event
     async def _fake_create(**kwargs):
         return fake_response
 
-    monkeypatch.setattr(reflection_module._client.messages, "create", _fake_create)
+    monkeypatch.setattr(claude_module._client.messages, "create", _fake_create)
 
     recorded_usage: dict = {}
 
@@ -79,6 +85,8 @@ async def test_run_reflection_calls_claude_saves_db_and_file_and_publishes_event
         "model": settings.CLAUDE_MODEL,
         "input_tokens": 500,
         "output_tokens": 150,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
     }
 
     assert published["event_type"] == "reflection_ready"
@@ -123,7 +131,12 @@ async def test_run_reflection_triggers_self_improvement_when_change_proposed(
     monkeypatch.setattr(reflection_module.db, "get_today_trades", _get_today_trades)
     monkeypatch.setattr(reflection_module.db, "get_today_rejections", _get_today_rejections)
 
-    fake_usage = SimpleNamespace(input_tokens=10, output_tokens=10)
+    fake_usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=10,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     fake_response = SimpleNamespace(
         content=[
             anthropic.types.TextBlock(
@@ -137,7 +150,7 @@ async def test_run_reflection_triggers_self_improvement_when_change_proposed(
     async def _fake_create(**kwargs):
         return fake_response
 
-    monkeypatch.setattr(reflection_module._client.messages, "create", _fake_create)
+    monkeypatch.setattr(claude_module._client.messages, "create", _fake_create)
 
     import core.fund.manager as manager_module
 
@@ -187,7 +200,12 @@ async def test_run_reflection_skips_self_improvement_when_no_change_proposed(
     monkeypatch.setattr(reflection_module.db, "get_today_trades", _get_today_trades)
     monkeypatch.setattr(reflection_module.db, "get_today_rejections", _get_today_rejections)
 
-    fake_usage = SimpleNamespace(input_tokens=10, output_tokens=10)
+    fake_usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=10,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     fake_response = SimpleNamespace(
         content=[
             anthropic.types.TextBlock(text="1. 적절\n2. 없음\n3. 없음\n4. 없음\nPROPOSED_CHANGE: 없음", type="text")
@@ -198,7 +216,7 @@ async def test_run_reflection_skips_self_improvement_when_no_change_proposed(
     async def _fake_create(**kwargs):
         return fake_response
 
-    monkeypatch.setattr(reflection_module._client.messages, "create", _fake_create)
+    monkeypatch.setattr(claude_module._client.messages, "create", _fake_create)
 
     import core.fund.manager as manager_module
 

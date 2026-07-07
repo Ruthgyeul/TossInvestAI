@@ -3,7 +3,7 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -251,14 +251,14 @@ async def post_simulate(request: web.Request) -> web.Response:
 
     if turn_on:
         if not settings.SIMULATION:
-            await db.set_simulation_started_at(datetime.now(timezone.utc))
+            await db.set_simulation_started_at(datetime.now(UTC))
         settings.SIMULATION = True
         return _json({"success": True, "simulation": True})
 
     if settings.SIMULATION:
         started_at = await db.get_simulation_started_at()
         elapsed_days = (
-            (datetime.now(timezone.utc) - started_at).total_seconds() / 86400
+            (datetime.now(UTC) - started_at).total_seconds() / 86400
             if started_at is not None
             else 0.0
         )
@@ -286,34 +286,9 @@ async def post_dryrun(request: web.Request) -> web.Response:
 
 
 def _average_holding_days(trades: list[dict]) -> float:
-    """docs/FUND_MANAGER.md `/simstatus` 예시 "평균 보유 2.3일" — 종목별 FIFO로 매수·매도를
-    매칭해 보유일수를 수량 가중 평균한다."""
-    by_symbol: dict[str, list[dict]] = {}
-    for trade in sorted(trades, key=lambda t: t["created_at"]):
-        by_symbol.setdefault(trade["symbol"], []).append(trade)
-
-    total_weighted_days = 0.0
-    total_matched_qty = 0
-    for symbol_trades in by_symbol.values():
-        open_lots: list[dict] = []  # [{"qty": int, "created_at": datetime}]
-        for trade in symbol_trades:
-            if trade["action"] == "BUY":
-                open_lots.append({"qty": trade["quantity"], "created_at": trade["created_at"]})
-                continue
-
-            remaining = trade["quantity"]
-            while remaining > 0 and open_lots:
-                lot = open_lots[0]
-                matched_qty = min(lot["qty"], remaining)
-                holding_days = (trade["created_at"] - lot["created_at"]).total_seconds() / 86400
-                total_weighted_days += holding_days * matched_qty
-                total_matched_qty += matched_qty
-                lot["qty"] -= matched_qty
-                remaining -= matched_qty
-                if lot["qty"] == 0:
-                    open_lots.pop(0)
-
-    return total_weighted_days / total_matched_qty if total_matched_qty else 0.0
+    """docs/FUND_MANAGER.md `/simstatus` 예시 "평균 보유 2.3일" — 계산은
+    core/market_data/indicators.py로 이전해 core/report/generator.py 주간 리포트와 공유한다."""
+    return indicators.calculate_avg_holding_days(trades)
 
 
 async def get_simstatus(request: web.Request) -> web.Response:
@@ -606,8 +581,8 @@ async def post_version_rollback(request: web.Request) -> web.Response:
             "change_summary": f"롤백: {target['strategy_version']}로 복귀",
             "backtest_result": target["backtest_result"],
             "approved_by": approved_by,
-            "proposed_at": datetime.now(timezone.utc),
-            "deployed_at": datetime.now(timezone.utc),
+            "proposed_at": datetime.now(UTC),
+            "deployed_at": datetime.now(UTC),
         },
     )
     return _json({"success": True})

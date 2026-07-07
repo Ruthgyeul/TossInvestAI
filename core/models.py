@@ -72,11 +72,11 @@ class GateResult:
     reason: str | None = None
 
     @classmethod
-    def approve(cls) -> "GateResult":
+    def approve(cls) -> GateResult:
         return cls(approved=True)
 
     @classmethod
-    def reject(cls, reason: str) -> "GateResult":
+    def reject(cls, reason: str) -> GateResult:
         return cls(approved=False, reason=reason)
 
 
@@ -88,7 +88,7 @@ class OrderResult:
     reason: str | None = None
 
     @classmethod
-    def rejected(cls, reason: str) -> "OrderResult":
+    def rejected(cls, reason: str) -> OrderResult:
         return cls(filled=False, reason=reason)
 
 

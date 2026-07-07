@@ -1,6 +1,6 @@
 """리포트 그래프 생성 단위 테스트 (docs/REPORT.md "그래프"). 실데이터 소스가 있는 7종을 검증한다."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -103,8 +103,8 @@ async def test_generate_and_publish_renders_timeseries_charts_in_simulation(
 
     async def _get_recent_simulation_snapshots(limit: int = 30) -> list[dict]:
         return [
-            {"total_value_krw": 500_000, "cash_krw": 75_000, "snapshot_at": datetime(2026, 7, 1, tzinfo=timezone.utc)},
-            {"total_value_krw": 512_000, "cash_krw": 75_000, "snapshot_at": datetime(2026, 7, 2, tzinfo=timezone.utc)},
+            {"total_value_krw": 500_000, "cash_krw": 75_000, "snapshot_at": datetime(2026, 7, 1, tzinfo=UTC)},
+            {"total_value_krw": 512_000, "cash_krw": 75_000, "snapshot_at": datetime(2026, 7, 2, tzinfo=UTC)},
         ]
 
     monkeypatch.setattr(generator_module, "get_watchlist", _get_watchlist)
@@ -159,8 +159,8 @@ async def test_generate_and_publish_renders_timeseries_charts_in_live_mode(
 
     async def _get_recent_live_snapshots(limit: int = 30) -> list[dict]:
         return [
-            {"total_value_krw": 600_000, "cash_krw": 50_000, "snapshot_at": datetime(2026, 7, 1, tzinfo=timezone.utc)},
-            {"total_value_krw": 610_000, "cash_krw": 50_000, "snapshot_at": datetime(2026, 7, 2, tzinfo=timezone.utc)},
+            {"total_value_krw": 600_000, "cash_krw": 50_000, "snapshot_at": datetime(2026, 7, 1, tzinfo=UTC)},
+            {"total_value_krw": 610_000, "cash_krw": 50_000, "snapshot_at": datetime(2026, 7, 2, tzinfo=UTC)},
         ]
 
     monkeypatch.setattr(generator_module, "get_watchlist", _get_watchlist)
@@ -307,3 +307,143 @@ async def test_generate_report_shows_fear_greed_and_popular_from_snapshot(
 
     assert "62 / 100" in content
     assert "005930, 000660" in content
+
+
+@pytest.mark.asyncio
+async def test_generate_weekly_report_includes_performance_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/REPORT.md "주간 성과 리포트" 필수 지표(승률·평균 수익률·최대 손익·MDD·샤프·
+    수익 팩터·평균 보유 기간·다음 주 전략 방향)가 실데이터로 채워져야 한다 (예전에는
+    총자산·누적수익률·자금 정산 3줄뿐이었다)."""
+    monkeypatch.setattr(settings, "DRY_RUN", False)
+    monkeypatch.setattr(settings, "SIMULATION", True)  # run_mode == "SIMULATION"
+
+    async def _get_portfolio_status(mode, market=None):  # noqa: ANN001
+        return {
+            "totalValueKrw": 512_000,
+            "cumulativePnlPct": 0.024,
+            "cumulativePnlKrw": 12_000,
+            "cashBufferKrw": 76_800,
+            "todayPnlKrw": 0,
+        }
+
+    from core.fund.manager import RebalanceResult
+
+    async def _weekly_rebalance(mode):  # noqa: ANN001
+        return RebalanceResult(api_cost_covered_krw=4_200, reinvested_krw=32_000, buffer_added_krw=8_000)
+
+    async def _get_operating_funds_krw(mode):  # noqa: ANN001
+        return 435_200.0
+
+    now = datetime.now(UTC)
+    all_trades = [
+        {
+            "symbol": "005930",
+            "action": "BUY",
+            "quantity": 2,
+            "fill_price": 74_800,
+            "pnl_krw": None,
+            "created_at": now - timedelta(days=2),
+        },
+        {
+            "symbol": "005930",
+            "action": "SELL",
+            "quantity": 2,
+            "fill_price": 76_200,
+            "pnl_krw": 2_572,
+            "created_at": now - timedelta(days=1),
+        },
+        {
+            "symbol": "AAPL",
+            "action": "BUY",
+            "quantity": 1,
+            "fill_price": 210.0,
+            "pnl_krw": None,
+            "created_at": now - timedelta(days=3),
+        },
+        {
+            "symbol": "AAPL",
+            "action": "SELL",
+            "quantity": 1,
+            "fill_price": 205.0,
+            "pnl_krw": -500,
+            "created_at": now - timedelta(days=1),
+        },
+    ]
+
+    async def _get_all_trades(mode):  # noqa: ANN001
+        return all_trades
+
+    async def _get_recent_simulation_snapshots(limit: int = 30) -> list[dict]:
+        return [
+            {"total_value_krw": 500_000, "cash_krw": 75_000, "snapshot_at": now - timedelta(days=6)},
+            {"total_value_krw": 512_000, "cash_krw": 75_000, "snapshot_at": now - timedelta(days=1)},
+        ]
+
+    monkeypatch.setattr(generator_module.fund_manager, "get_portfolio_status", _get_portfolio_status)
+    monkeypatch.setattr(generator_module.fund_manager, "weekly_rebalance", _weekly_rebalance)
+    monkeypatch.setattr(generator_module.fund_manager, "get_operating_funds_krw", _get_operating_funds_krw)
+    monkeypatch.setattr(generator_module.db, "get_all_trades", _get_all_trades)
+    monkeypatch.setattr(
+        generator_module.db, "get_recent_simulation_snapshots", _get_recent_simulation_snapshots
+    )
+
+    content = await generator_module.generate_weekly_report()
+
+    assert "총 거래 횟수    4회 (매수 2 / 매도 2)" in content
+    assert "승률            50.0%" in content
+    assert "최대 단일 손실" in content
+    assert "최대 단일 수익" in content
+    assert "MDD" in content
+    assert "샤프 지수" in content
+    assert "수익 팩터" in content
+    assert "평균 보유 기간" in content
+    assert "운용 자금         435,200 KRW" in content
+    assert "Claude API 비용   -4,200 KRW" in content
+    assert "순수익 재투자     +32,000 KRW" in content
+    assert "다음 주 전략 방향" in content
+
+
+@pytest.mark.asyncio
+async def test_generate_weekly_report_flags_no_sells_for_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """이번 주 매도 체결이 없으면 승률 등 계산이 불가능하므로 관망 문구를 반환해야 한다."""
+    monkeypatch.setattr(settings, "DRY_RUN", False)
+    monkeypatch.setattr(settings, "SIMULATION", True)
+
+    async def _get_portfolio_status(mode, market=None):  # noqa: ANN001
+        return {
+            "totalValueKrw": 500_000,
+            "cumulativePnlPct": 0.0,
+            "cumulativePnlKrw": 0,
+            "cashBufferKrw": 75_000,
+            "todayPnlKrw": 0,
+        }
+
+    from core.fund.manager import RebalanceResult
+
+    async def _weekly_rebalance(mode):  # noqa: ANN001
+        return RebalanceResult(api_cost_covered_krw=0, reinvested_krw=0, buffer_added_krw=0)
+
+    async def _get_operating_funds_krw(mode):  # noqa: ANN001
+        return 425_000.0
+
+    async def _get_all_trades(mode):  # noqa: ANN001
+        return []
+
+    async def _get_recent_simulation_snapshots(limit: int = 30) -> list[dict]:
+        return []
+
+    monkeypatch.setattr(generator_module.fund_manager, "get_portfolio_status", _get_portfolio_status)
+    monkeypatch.setattr(generator_module.fund_manager, "weekly_rebalance", _weekly_rebalance)
+    monkeypatch.setattr(generator_module.fund_manager, "get_operating_funds_krw", _get_operating_funds_krw)
+    monkeypatch.setattr(generator_module.db, "get_all_trades", _get_all_trades)
+    monkeypatch.setattr(
+        generator_module.db, "get_recent_simulation_snapshots", _get_recent_simulation_snapshots
+    )
+
+    content = await generator_module.generate_weekly_report()
+
+    assert "이번 주 체결된 매도가 없어" in content

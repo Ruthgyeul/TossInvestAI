@@ -1,10 +1,11 @@
 """기술적 지표 계산 — RSI·MACD·EMA·볼린저밴드 (`ta` 라이브러리 기반)."""
 
 import statistics
+from datetime import datetime
 
 import pandas as pd
 from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator, MACD
+from ta.trend import MACD, EMAIndicator
 from ta.volatility import BollingerBands
 
 
@@ -71,3 +72,40 @@ def calculate_sharpe_ratio(values: list[float]) -> float:
     if stdev == 0:
         return 0.0
     return statistics.mean(returns) / stdev * (252**0.5)
+
+
+def calculate_avg_holding_days(trades: list[dict], *, since: datetime | None = None) -> float:
+    """종목별 FIFO로 매수·매도를 매칭해 보유일수를 수량 가중 평균한다.
+
+    core/api/routes.py `/simstatus`("평균 보유 2.3일")와 core/report/generator.py
+    주간 성과 리포트("평균 보유 기간")가 공유한다. `since`를 지정하면 매수 시점이 그
+    이전이어도 매칭에는 사용하되, `since` 이전에 청산(매도)된 거래는 평균에서 제외한다 —
+    `trades`에 조회 기간 이전의 매수 이력까지 포함해 전달해야 정확히 매칭된다.
+    """
+    by_symbol: dict[str, list[dict]] = {}
+    for trade in sorted(trades, key=lambda t: t["created_at"]):
+        by_symbol.setdefault(trade["symbol"], []).append(trade)
+
+    total_weighted_days = 0.0
+    total_matched_qty = 0
+    for symbol_trades in by_symbol.values():
+        open_lots: list[dict] = []  # [{"qty": int, "created_at": datetime}]
+        for trade in symbol_trades:
+            if trade["action"] == "BUY":
+                open_lots.append({"qty": trade["quantity"], "created_at": trade["created_at"]})
+                continue
+
+            remaining = trade["quantity"]
+            while remaining > 0 and open_lots:
+                lot = open_lots[0]
+                matched_qty = min(lot["qty"], remaining)
+                if since is None or trade["created_at"] >= since:
+                    holding_days = (trade["created_at"] - lot["created_at"]).total_seconds() / 86400
+                    total_weighted_days += holding_days * matched_qty
+                    total_matched_qty += matched_qty
+                lot["qty"] -= matched_qty
+                remaining -= matched_qty
+                if lot["qty"] == 0:
+                    open_lots.pop(0)
+
+    return total_weighted_days / total_matched_qty if total_matched_qty else 0.0

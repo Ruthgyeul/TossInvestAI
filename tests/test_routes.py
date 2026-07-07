@@ -6,7 +6,7 @@ DB·토스 API·FundManager 등 실제 협력 객체는 monkeypatch로 격리하
 
 import asyncio
 import json as json_lib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -215,25 +215,25 @@ def test_average_holding_days_matches_fifo_buy_sell_pairs() -> None:
             "symbol": "005930",
             "action": "BUY",
             "quantity": 10,
-            "created_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 1, tzinfo=UTC),
         },
         {
             "symbol": "005930",
             "action": "SELL",
             "quantity": 10,
-            "created_at": datetime(2026, 7, 3, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 3, tzinfo=UTC),
         },
         {
             "symbol": "AAPL",
             "action": "BUY",
             "quantity": 5,
-            "created_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 1, tzinfo=UTC),
         },
         {
             "symbol": "AAPL",
             "action": "SELL",
             "quantity": 5,
-            "created_at": datetime(2026, 7, 2, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 2, tzinfo=UTC),
         },
     ]
 
@@ -247,7 +247,7 @@ def test_average_holding_days_zero_when_no_completed_round_trip() -> None:
             "symbol": "005930",
             "action": "BUY",
             "quantity": 10,
-            "created_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 1, tzinfo=UTC),
         }
     ]
 
@@ -267,7 +267,7 @@ async def test_get_orders_returns_action_quantity_price(monkeypatch: pytest.Monk
                 "quantity": 2,
                 "price": 74_800.0,
                 "status": "FILLED",
-                "created_at": datetime(2026, 7, 6, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 7, 6, tzinfo=UTC),
             }
         ]
 
@@ -302,7 +302,7 @@ async def test_get_simstatus_includes_avg_holding_days(monkeypatch: pytest.Monke
             "fill_price": 74_000.0,
             "commission_krw": 100,
             "pnl_krw": None,
-            "created_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 1, tzinfo=UTC),
         },
         {
             "symbol": "005930",
@@ -312,7 +312,7 @@ async def test_get_simstatus_includes_avg_holding_days(monkeypatch: pytest.Monke
             "fill_price": 75_000.0,
             "commission_krw": 100,
             "pnl_krw": 9_800,
-            "created_at": datetime(2026, 7, 3, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 7, 3, tzinfo=UTC),
         },
     ]
 
@@ -350,7 +350,7 @@ async def test_post_simulate_off_rejected_before_two_weeks(
     monkeypatch.setattr(settings, "SIMULATION", True)
 
     async def _get_simulation_started_at() -> datetime:
-        return datetime.now(timezone.utc) - timedelta(days=5)
+        return datetime.now(UTC) - timedelta(days=5)
 
     monkeypatch.setattr(routes.db, "get_simulation_started_at", _get_simulation_started_at)
 
@@ -371,7 +371,7 @@ async def test_post_simulate_off_allowed_after_two_weeks(
     monkeypatch.setattr(settings, "SIMULATION", True)
 
     async def _get_simulation_started_at() -> datetime:
-        return datetime.now(timezone.utc) - timedelta(days=15)
+        return datetime.now(UTC) - timedelta(days=15)
 
     monkeypatch.setattr(routes.db, "get_simulation_started_at", _get_simulation_started_at)
 
@@ -433,7 +433,7 @@ async def test_get_version_candidates_lists_pending(monkeypatch: pytest.MonkeyPa
                 "based_on": "v1.0.0",
                 "change_summary": "RSI 임계값 조정",
                 "backtest_result": {"win_rate": 0.6},
-                "proposed_at": datetime(2026, 7, 6, tzinfo=timezone.utc),
+                "proposed_at": datetime(2026, 7, 6, tzinfo=UTC),
             }
         ]
 

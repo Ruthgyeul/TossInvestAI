@@ -51,8 +51,11 @@ async function handleTradeExecuted(client: Client, event: PubSubEvent): Promise<
     action: "BUY" | "SELL";
     quantity: number;
     fillPrice: number;
+    totalAmountKrw?: number;
     commissionKrw: number;
     pnlKrw: number | null;
+    avgPrice?: number | null;
+    balanceChangeKrw?: number | null;
     reason: string;
     decisionId: string;
     orderId: string;
@@ -64,12 +67,15 @@ async function handleTradeExecuted(client: Client, event: PubSubEvent): Promise<
     market: event.market ?? "KR",
     quantity: payload.quantity,
     fillPrice: payload.fillPrice,
+    totalAmountKrw: payload.totalAmountKrw ?? payload.fillPrice * payload.quantity,
     commissionKrw: payload.commissionKrw,
     reason: payload.reason,
     decisionId: payload.decisionId,
     orderId: payload.orderId,
     mode: event.mode,
     realizedPnlKrw: payload.pnlKrw ?? undefined,
+    avgPrice: payload.avgPrice ?? undefined,
+    balanceChangeKrw: payload.balanceChangeKrw ?? undefined,
   };
 
   const embed = payload.action === "BUY" ? buildBuyEmbed(data) : buildSellEmbed(data);

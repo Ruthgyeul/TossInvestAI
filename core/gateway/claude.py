@@ -20,7 +20,7 @@ _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 class ClaudeGateway(AIGateway):
     async def decide(self, state: StateSnapshot) -> Decision:
         response = await _call_claude(
-            system_prompt=load_system_prompt(state.market),
+            system_prompt=load_system_prompt(state.prompt_version),
             long_term_memory=await _load_long_term_memory(state),
             realtime_market=build_realtime_block(state),
             portfolio_snapshot=build_portfolio_block(state),
@@ -109,6 +109,23 @@ def _extract_text(response: anthropic.types.Message) -> str:
 
 def _parse_decision(text: str) -> Decision:
     return parse_decision_json(text)
+
+
+async def call_freeform(system_prompt: str, user_message: str) -> str:
+    """캐싱 없는 1회성 Claude 호출 — 매매 결정 외 용도(자기평가 등)에 사용한다.
+
+    CODING_RULES.md "모든 AI 호출은 core/gateway/ 모듈에서만 수행한다"에 따라
+    core/trading/reflection.py가 별도 Anthropic 클라이언트를 만들지 않고 이 함수를 통해서만
+    Claude를 호출한다. 하루 1회뿐이라 Prompt Caching은 적용하지 않는다 (docs/BIN.md).
+    """
+    response = await _client.messages.create(
+        model=settings.CLAUDE_MODEL,
+        max_tokens=settings.CLAUDE_MAX_TOKENS,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    await _record_usage(response.usage)
+    return _extract_text(response)
 
 
 claude_gateway = ClaudeGateway()

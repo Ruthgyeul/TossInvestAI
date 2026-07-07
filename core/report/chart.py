@@ -45,12 +45,17 @@ def render_asset_value_chart(dates: list[str], values: list[float]) -> Path:
     return _save(fig, "asset_value")
 
 
-def render_index_comparison_chart(kospi: list[float], nasdaq: list[float]) -> Path:
-    """KOSPI·NASDAQ 정규화 비교."""
+def render_index_comparison_chart(kr_composite: list[float], us_composite: list[float]) -> Path:
+    """KR·US 관심 종목 동일가중 평균 정규화 비교.
+
+    토스증권 API에 KOSPI·NASDAQ 지수 엔드포인트가 없어(docs/TOSS_API.md) 관심 종목 일봉
+    종가의 동일가중 평균을 대체 지표로 사용한다(docs/REPORT.md "시장 지수 비교") —
+    실제 지수가 아니므로 범례·제목에 KOSPI/NASDAQ을 표기하지 않는다.
+    """
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot([v / kospi[0] * 100 for v in kospi], label="KOSPI", color="#e17055")
-    ax.plot([v / nasdaq[0] * 100 for v in nasdaq], label="NASDAQ", color="#0984e3")
-    ax.set_title("시장 지수 비교 (시작=100)")
+    ax.plot([v / kr_composite[0] * 100 for v in kr_composite], label="KR 관심종목 평균", color="#e17055")
+    ax.plot([v / us_composite[0] * 100 for v in us_composite], label="US 관심종목 평균", color="#0984e3")
+    ax.set_title("시장 지수 비교 (관심 종목 대체 지표, 시작=100)")
     ax.legend()
     fig.tight_layout()
     return _save(fig, "index_comparison")

@@ -106,6 +106,10 @@ REDIS_URL=redis://127.0.0.1:6379/0
 | `/backtest {strategy} {period}` | 백테스트 실행 (1Y/3Y/5Y) |
 | `/health` | 라즈베리파이 상태 (CPU·메모리·온도·디스크) |
 | `/version` | 현재 전략·프롬프트 버전 |
+| `/version candidates` | 승인 대기 중인 자기개선 후보 목록 (docs/SELF_IMPROVEMENT.md) |
+| `/version approve {id}` | 후보를 승인해 배포 상태로 전환 |
+| `/version reject {id}` | 후보 거부 |
+| `/version rollback {strategyVersion}` | 과거 배포 이력이 있는 버전으로 롤백 |
 
 ---
 

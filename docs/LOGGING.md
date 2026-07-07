@@ -120,7 +120,10 @@ Toss Order ID       SIM-20260706-KR-001   ← SIM 접두사로 실전과 구분
 | `simulation_daily_pnl` | 가상 일별 손익 |
 | `simulation_portfolio_snapshots` | 가상 포트폴리오 시간대별 스냅샷 |
 
-`mode` 컬럼은 모든 공용 테이블(`decisions`, `safety_rejections`, `api_usage`, `reflections`)에 포함된다.
+`mode` 컬럼은 LIVE/SIMULATION 데이터가 섞일 수 있는 공용 테이블(`decisions`,
+`safety_rejections`, `reflections`, `fund_rebalances`)에 포함된다. `api_usage`는 예외다 —
+Claude API 비용은 트레이딩 모드와 무관하게 항상 실제로 청구되는 비용이므로 `mode` 구분 없이
+합산한다(`core/db/store.py` `get_api_usage_month_summary`).
 
 ```sql
 -- 예시: decisions 테이블 mode 컬럼
