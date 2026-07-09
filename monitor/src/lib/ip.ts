@@ -88,3 +88,10 @@ export function getClientIp(request: { headers: Headers }): string {
   if (realIp) return normalizeIp(realIp);
   return "unknown";
 }
+
+/** For display on /auth (Auth Gate design): masks the last two IPv4 octets, e.g. "121.128.xx.xx". */
+export function maskIpForDisplay(ip: string): string {
+  const parts = ip.split(".");
+  if (parts.length === 4) return `${parts[0]}.${parts[1]}.xx.xx`;
+  return ip;
+}

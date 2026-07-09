@@ -29,3 +29,29 @@ export function barHeights(value: number): { pos: number; neg: number } {
     neg: value <= 50 ? (50 - value) * 2 : 4,
   };
 }
+
+const kstTimestampFormatter = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+/** "YYYY.MM.DD HH:mm:ss" in KST, matching the header clock's format. */
+export function formatKstTimestamp(date: Date): string {
+  const parts = kstTimestampFormatter.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}.${get("month")}.${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
+/** "MM:SS" countdown display, clamped to 0. */
+export function formatCountdown(totalSeconds: number): string {
+  const clamped = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(clamped / 60);
+  const seconds = clamped % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}

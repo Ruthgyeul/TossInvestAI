@@ -67,7 +67,6 @@ export interface SystemHealthSnapshot {
   logs: LogEntry[];
   safetyGate: {
     passRateLabel: string;
-    rejectionsToday: number;
     rejections: SafetyRejection[];
   };
   selfAssessment: {

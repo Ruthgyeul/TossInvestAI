@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getClientIp } from "@/lib/ip";
-import { requestAuthCode } from "@/lib/auth";
+import { getClientIp, maskIpForDisplay } from "@/lib/ip";
+import { requestAuthCode, MAX_ATTEMPTS } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +14,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: result.reason }, { status });
   }
 
-  return NextResponse.json({ ok: true, expiresInSeconds: result.expiresInSeconds });
+  return NextResponse.json({
+    ok: true,
+    expiresInSeconds: result.expiresInSeconds,
+    maxAttempts: MAX_ATTEMPTS,
+    maskedIp: maskIpForDisplay(ip),
+  });
 }

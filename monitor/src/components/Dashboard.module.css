@@ -362,11 +362,11 @@
 .serviceList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 9.5px;
+  gap: 1px;
+  font-size: 9px;
   color: var(--text-muted-58);
-  margin-bottom: 3px;
-  padding-bottom: 3px;
+  margin-bottom: 1px;
+  padding-bottom: 1px;
   border-bottom: 1px solid var(--border-27);
 }
 .serviceRow {
@@ -400,7 +400,7 @@
   gap: 5px;
   align-items: baseline;
   font-size: 10.5px;
-  line-height: 1.4;
+  line-height: 1.2;
 }
 .logTime {
   font-family: var(--font-mono);
@@ -430,9 +430,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 9px;
-  margin-top: 3px;
-  padding-top: 3px;
+  font-size: 9.5px;
+  margin-top: 2px;
+  padding-top: 2px;
   border-top: 1px solid var(--border-27);
 }
 .subsectionTitle {
@@ -449,26 +449,48 @@
   display: flex;
   gap: 5px;
   align-items: baseline;
-  font-size: 9px;
-  line-height: 1.3;
+  font-size: 10.5px;
+  line-height: 1.2;
 }
 .safetyTime {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 9.5px;
   color: var(--text-muted-48);
   flex-shrink: 0;
 }
 .safetyText {
   color: var(--text-secondary);
 }
-.selfAssessRow {
+.selfAssessBlock {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
-  font-size: 9px;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
   margin-top: 3px;
   padding-top: 3px;
   border-top: 1px solid var(--border-27);
+  flex: 1;
+  min-height: 0;
+}
+.selfAssessHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.selfAssessTime {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-muted-55);
+}
+.selfAssessSummary {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ---------- positions card ---------- */

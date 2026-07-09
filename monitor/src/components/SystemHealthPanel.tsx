@@ -17,7 +17,7 @@ export function SystemHealthPanel({ data }: { data: SystemHealthSnapshot }) {
   return (
     <div className={`${styles.card} ${styles.systemHealthCard}`}>
       <div className={styles.sectionHeader}>
-        <div className={styles.sectionTitle}>시스템 헬스</div>
+        <div className={styles.sectionTitle}>시스템 상태</div>
         <div className={styles.sectionMeta} style={{ fontSize: 9 }}>
           에러 {data.errorCountToday}건 · HB {data.lastHeartbeatSecondsAgo}초 전
         </div>
@@ -46,7 +46,7 @@ export function SystemHealthPanel({ data }: { data: SystemHealthSnapshot }) {
       <div className={styles.subsectionHeader}>
         <div className={styles.subsectionTitle}>Safety Gate 거부</div>
         <div className={styles.safetyGateRate}>
-          {data.safetyGate.passRateLabel} · 금일 {data.safetyGate.rejectionsToday}건
+          {data.safetyGate.passRateLabel} · 최근 {data.safetyGate.rejections.length}건
         </div>
       </div>
       {data.safetyGate.rejections.map((rej, i) => (
@@ -56,11 +56,12 @@ export function SystemHealthPanel({ data }: { data: SystemHealthSnapshot }) {
         </div>
       ))}
 
-      <div className={styles.selfAssessRow}>
-        <span className={styles.subsectionTitle}>자기평가</span>
-        <span className={styles.safetyText}>
-          {data.selfAssessment.time} · {data.selfAssessment.summary}
-        </span>
+      <div className={styles.selfAssessBlock}>
+        <div className={styles.selfAssessHeader}>
+          <span className={styles.subsectionTitle}>자기평가</span>
+          <span className={styles.selfAssessTime}>{data.selfAssessment.time}</span>
+        </div>
+        <span className={styles.selfAssessSummary}>{data.selfAssessment.summary}</span>
       </div>
     </div>
   );

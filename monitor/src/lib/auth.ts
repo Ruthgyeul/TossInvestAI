@@ -3,7 +3,7 @@ import { getRedis } from "./redis";
 
 const CODE_TTL_SECONDS = Number(process.env.MONITOR_AUTH_CODE_TTL_SECONDS ?? 300);
 const CODE_COOLDOWN_SECONDS = Number(process.env.MONITOR_AUTH_CODE_COOLDOWN_SECONDS ?? 30);
-const MAX_ATTEMPTS = Number(process.env.MONITOR_AUTH_MAX_ATTEMPTS ?? 3);
+export const MAX_ATTEMPTS = Number(process.env.MONITOR_AUTH_MAX_ATTEMPTS ?? 3);
 const SESSION_TTL_SECONDS = Number(process.env.MONITOR_SESSION_TTL_SECONDS ?? 43200);
 const ATTEMPTS_COUNTER_TTL_SECONDS = 60 * 60 * 24;
 

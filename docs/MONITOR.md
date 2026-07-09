@@ -16,7 +16,10 @@ KR·US 포지션, AI 매매 판단, 시스템 헬스, Safety Gate 거부 이력,
 
 디자인 원본은 `claude.ai/design`의 **Bin Monitor.dc.html**(1024×600 고정
 캔버스)이며, `monitor/`는 이 디자인을 값 그대로(색상 `oklch()`, 간격 px)
-옮긴 구현체다.
+옮긴 구현체다. `/auth`(외부 접속 인증 화면)는 같은 디자인 프로젝트의
+**Auth Gate.dc.html**을 값 그대로 옮겼다 — 단, 대시보드와 달리 고정
+1024×600 캔버스가 아니라 반응형 페이지로 구현했다(아래 "외부 접속 인증"
+참고).
 
 ---
 
@@ -108,10 +111,12 @@ MonitorDashboard.tsx  (클라이언트, 30초 간격 폴링)
 
 1. 외부 IP가 아무 경로로 접속하면 `src/proxy.ts`가 세션 쿠키를 확인하고, 없으면
    `/auth`로 리다이렉트한다.
-2. `/auth`에서 "인증 코드 요청"을 누르면 `POST /api/auth/request-code`가 6자리
-   코드를 생성해 Redis에 저장(TTL `MONITOR_AUTH_CODE_TTL_SECONDS`, 기본 5분)하고,
-   `pubsub:events` 채널(docs/INTERNAL_API.md)에 `monitor_auth_code_issued` 이벤트를
-   발행한다.
+2. `/auth`가 로드되면(`AuthForm.tsx` 마운트 시점) 자동으로 `POST
+   /api/auth/request-code`를 호출해 6자리 코드를 생성해 Redis에 저장(TTL
+   `MONITOR_AUTH_CODE_TTL_SECONDS`, 기본 5분)하고, `pubsub:events` 채널
+   (docs/INTERNAL_API.md)에 `monitor_auth_code_issued` 이벤트를 발행한다. 코드를
+   받지 못했다면 "Discord DM 재전송"으로 같은 요청을 다시 트리거할 수 있다
+   (쿨다운 `MONITOR_AUTH_CODE_COOLDOWN_SECONDS`, 기본 30초).
 3. discord-bot의 기존 `eventSubscriber.ts`가 이 이벤트를 받아 코드를 **길드 채널이
    아니라 `DISCORD_DEVELOPER_ID`에게 DM으로만** 전송한다
    (`discord-bot/src/embeds/monitorAuth.ts`). `#stock-log`에는 코드 없이
