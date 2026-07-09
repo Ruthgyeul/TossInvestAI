@@ -1,4 +1,4 @@
-"""SafetyGate 통과·거부 조건 단위 테스트 (docs/SAFETY.md 11개 조건, KR·US 시나리오).
+"""SafetyGate 통과·거부 조건 단위 테스트 (docs/SAFETY.md 13개 조건, KR·US 시나리오).
 
 check()의 오케스트레이션 로직만 검증한다. DB·토스 API·FundManager 등 실제 협력 객체는
 private 헬퍼(`_get_daily_loss` 등)를 monkeypatch로 대체해 격리한다.
@@ -20,6 +20,8 @@ def _make_order(
     *,
     market: str = "KR",
     symbol: str = "005930",
+    action: str = "BUY",
+    quantity: int = 1,
     order_type: str = "LIMIT",
     amount_krw: int = 50_000,
     client_order_id: str = "BIN-KR-TEST",
@@ -27,8 +29,8 @@ def _make_order(
     return Order(
         symbol=symbol,
         market=market,  # type: ignore[arg-type]
-        action="BUY",
-        quantity=1,
+        action=action,  # type: ignore[arg-type]
+        quantity=quantity,
         order_type=order_type,  # type: ignore[arg-type]
         price=None,
         amount_krw=amount_krw,
@@ -49,6 +51,9 @@ def _stub_all_pass(gate: SafetyGate, monkeypatch: pytest.MonkeyPatch) -> None:
     async def _cash_buffer(mode: RunMode) -> float:
         return settings.INITIAL_SEED_KRW * 0.15
 
+    async def _sellable_quantity(symbol: str, mode: RunMode) -> int:
+        return 9999
+
     async def _stock_warnings(symbol: str) -> dict:
         return {"has_restriction": False}
 
@@ -67,6 +72,7 @@ def _stub_all_pass(gate: SafetyGate, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gate, "_get_daily_loss", _daily_loss)
     monkeypatch.setattr(gate, "_get_position_ratio", _position_ratio)
     monkeypatch.setattr(gate, "_get_cash_buffer", _cash_buffer)
+    monkeypatch.setattr(gate, "_get_sellable_quantity", _sellable_quantity)
     monkeypatch.setattr(gate, "_get_stock_warnings", _stock_warnings)
     monkeypatch.setattr(gate, "_is_market_open", _market_open)
     monkeypatch.setattr(gate, "_is_regular_session", _regular_session)
@@ -172,7 +178,7 @@ async def test_max_position_ratio_rejects_oversized_order(
 async def test_non_positive_quantity_or_amount_rejects_order(
     gate: SafetyGate, quantity: int, amount_krw: int
 ) -> None:
-    """음수/0 수량·금액은 5번 조건(amount_krw > MAX_SINGLE_ORDER_KRW)을 무력화하므로
+    """음수/0 수량·금액은 6번 조건(amount_krw > MAX_SINGLE_ORDER_KRW)을 무력화하므로
     다른 어떤 조건보다 먼저 거부해야 한다 (예: 수동 주문 API의 입력 검증 누락에도 대비)."""
     order = _make_order(amount_krw=amount_krw)
     order.quantity = quantity
@@ -181,6 +187,67 @@ async def test_non_positive_quantity_or_amount_rejects_order(
 
     assert result.approved is False
     assert "0보다 커야" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_sell_exceeding_holding_quantity_rejects_order(
+    gate: SafetyGate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _sellable_quantity(symbol: str, mode: RunMode) -> int:
+        return 3
+
+    monkeypatch.setattr(gate, "_get_sellable_quantity", _sellable_quantity)
+
+    order = _make_order(action="SELL", quantity=5)
+    result = await gate.check(order, RunMode(mode="LIVE", market="KR"))
+
+    assert result.approved is False
+    assert "매도 가능 수량 초과" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_sell_within_holding_quantity_approves_order(
+    gate: SafetyGate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _sellable_quantity(symbol: str, mode: RunMode) -> int:
+        return 5
+
+    monkeypatch.setattr(gate, "_get_sellable_quantity", _sellable_quantity)
+
+    order = _make_order(action="SELL", quantity=5)
+    result = await gate.check(order, RunMode(mode="SIMULATION", market="KR"))
+
+    assert result.approved is True
+
+
+@pytest.mark.asyncio
+async def test_sell_unheld_symbol_rejects_order(
+    gate: SafetyGate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _sellable_quantity(symbol: str, mode: RunMode) -> int:
+        return 0
+
+    monkeypatch.setattr(gate, "_get_sellable_quantity", _sellable_quantity)
+
+    order = _make_order(action="SELL", quantity=1)
+    result = await gate.check(order, RunMode(mode="SIMULATION", market="KR"))
+
+    assert result.approved is False
+    assert "매도 가능 수량 초과" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_buy_orders_skip_sellable_quantity_check(
+    gate: SafetyGate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _sellable_quantity(symbol: str, mode: RunMode) -> int:
+        raise AssertionError("BUY 주문은 매도 가능 수량을 조회하지 않아야 한다")
+
+    monkeypatch.setattr(gate, "_get_sellable_quantity", _sellable_quantity)
+
+    result = await gate.check(_make_order(action="BUY"), RunMode(mode="LIVE", market="KR"))
+
+    assert result.approved is True
 
 
 @pytest.mark.asyncio

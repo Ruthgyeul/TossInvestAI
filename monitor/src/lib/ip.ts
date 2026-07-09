@@ -70,10 +70,12 @@ export function isInternalIp(rawIp: string): boolean {
 }
 
 /**
- * Next.js's Node server fills `x-forwarded-for` from the raw socket address when the
- * header is absent (see base-server.js), so this is reliable for direct exposure. If a
- * reverse proxy sits in front, it must overwrite (not merely append to) this header with
- * the real connecting IP — otherwise a client can forge it. See monitor/README.md.
+ * These headers are only trustworthy because `server.js` already rewrote them to the
+ * real TCP peer address for any request that didn't arrive from loopback or a configured
+ * MONITOR_TRUSTED_PROXY_CIDRS entry — see server.js and docs/MONITOR.md "보안 전제".
+ * Route handlers/proxy.ts have no access to the raw socket themselves (NextRequest
+ * doesn't expose it), so that rewriting has to happen upstream, before Next.js's own
+ * `req.headers['x-forwarded-for'] ??= socket.remoteAddress` merge runs.
  */
 export function getClientIp(request: { headers: Headers }): string {
   const forwardedFor = request.headers.get("x-forwarded-for");
@@ -94,4 +96,29 @@ export function maskIpForDisplay(ip: string): string {
   const parts = ip.split(".");
   if (parts.length === 4) return `${parts[0]}.${parts[1]}.xx.xx`;
   return ip;
+}
+
+/**
+ * Buckets an IP for auth rate-limiting/lockout purposes (src/lib/auth.ts). IPv4 is
+ * returned unchanged — acquiring many distinct public IPv4 addresses isn't practical for
+ * an attacker. IPv6 is collapsed to its /64 prefix: a residential ISP typically delegates
+ * a whole /64 (or larger) to a single customer, so without this an attacker could rotate
+ * through addresses in their own delegated prefix to get a fresh 3-attempt budget for
+ * every guess, defeating the lockout entirely.
+ */
+export function rateLimitBucket(ip: string): string {
+  if (!ip.includes(":")) return ip;
+
+  let groups: string[];
+  if (ip.includes("::")) {
+    const [head, tail] = ip.split("::");
+    const headGroups = head ? head.split(":") : [];
+    const tailGroups = tail ? tail.split(":") : [];
+    const missing = Math.max(8 - headGroups.length - tailGroups.length, 0);
+    groups = [...headGroups, ...Array(missing).fill("0"), ...tailGroups];
+  } else {
+    groups = ip.split(":");
+  }
+
+  return groups.slice(0, 4).join(":");
 }

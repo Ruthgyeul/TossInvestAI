@@ -13,7 +13,7 @@ from core.toss import market as toss_market
 
 class SafetyGate:
     async def check(self, order: Order, mode: RunMode) -> GateResult:
-        # 0. 수량·금액은 반드시 양수 — 0 이하 값은 5번 조건(amount_krw > MAX_SINGLE_ORDER_KRW)의
+        # 0. 수량·금액은 반드시 양수 — 0 이하 값은 6번 조건(amount_krw > MAX_SINGLE_ORDER_KRW)의
         # 상한 비교를 무의미하게 만들어 사실상 한도를 우회하므로, 다른 경로(수동 주문 API 등)의
         # 입력 검증 누락 여부와 무관하게 Safety Gate 자체에서 막는다.
         if order.quantity <= 0 or order.amount_krw <= 0:
@@ -39,35 +39,44 @@ class SafetyGate:
         if position_ratio > settings.MAX_POSITION_RATIO:
             return GateResult.reject(f"종목 비중 상한 초과: {position_ratio:.1%}")
 
-        # 5. 1회 주문 금액 상한
+        # 5. 매도 주문: 실제 매도 가능 수량 이내인지 확인 (미보유/초과 매도 방지)
+        #    LIVE: 토스 매도가능수량 API / SIMULATION·DRY_RUN: 가상 포트폴리오 보유 수량
+        if order.action == "SELL":
+            sellable = await self._get_sellable_quantity(order.symbol, mode)
+            if order.quantity > sellable:
+                return GateResult.reject(
+                    f"매도 가능 수량 초과: 보유 {sellable}주 / 요청 {order.quantity}주"
+                )
+
+        # 6. 1회 주문 금액 상한
         if order.amount_krw > settings.MAX_SINGLE_ORDER_KRW:
             return GateResult.reject(f"주문 금액 초과: {order.amount_krw:,} KRW")
 
-        # 6. 현금 버퍼 최소 유지
+        # 7. 현금 버퍼 최소 유지
         buffer = await self._get_cash_buffer(mode)
         if buffer < settings.INITIAL_SEED_KRW * 0.05:
             return GateResult.reject("현금 버퍼 부족")
 
-        # 7. KR 종목: VI 발동·투자경고·정리매매 없음
+        # 8. KR 종목: VI 발동·투자경고·정리매매 없음
         if order.market == "KR":
             warnings = await self._get_stock_warnings(order.symbol)
             if warnings.get("has_restriction"):
                 return GateResult.reject(f"거래 제한 종목: {warnings.get('reason')}")
 
-        # 8. 장 운영 중 확인
+        # 9. 장 운영 중 확인
         if not await self._is_market_open(order.market):
             return GateResult.reject("장 마감 시간")
 
-        # 9. 미국장 금액 주문은 정규장만
+        # 10. 미국장 금액 주문은 정규장만
         if order.market == "US" and order.order_type == "AMOUNT":
             if not await self._is_regular_session("US"):
                 return GateResult.reject("금액 주문은 정규장만 허용")
 
-        # 10. 주문 ID 중복 없음
+        # 11. 주문 ID 중복 없음
         if await self._order_id_exists(order.client_order_id):
             return GateResult.reject("중복 주문 ID")
 
-        # 11. 고위험 이벤트 당일: 주문 한도 50% 자동 축소
+        # 12. 고위험 이벤트 당일: 주문 한도 50% 자동 축소
         if await self._has_high_risk_event_today():
             limit = settings.MAX_SINGLE_ORDER_KRW * 0.5
             if order.amount_krw > limit:
@@ -85,6 +94,9 @@ class SafetyGate:
 
     async def _get_cash_buffer(self, mode: RunMode) -> float:
         return await fund_manager.get_cash_buffer_krw(mode.mode)
+
+    async def _get_sellable_quantity(self, symbol: str, mode: RunMode) -> int:
+        return await fund_manager.get_holding_quantity(symbol, mode.mode)
 
     async def _get_stock_warnings(self, symbol: str) -> dict:
         return await toss_market.get_stock_warnings(symbol)

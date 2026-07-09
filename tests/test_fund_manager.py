@@ -274,3 +274,37 @@ async def test_simulation_mode_never_touches_live_toss_account(
     total_value = await fund_manager.get_total_value_krw("SIMULATION")
 
     assert total_value == pytest.approx(100_000.0 + 10 * 75_000.0)
+
+
+@pytest.mark.asyncio
+async def test_get_holding_quantity_live_delegates_to_toss_sellable_quantity(
+    fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _get_sellable_quantity(symbol: str) -> int:
+        assert symbol == "005930"
+        return 7
+
+    monkeypatch.setattr(toss_account, "get_sellable_quantity", _get_sellable_quantity)
+
+    quantity = await fund_manager.get_holding_quantity("005930", "LIVE")
+
+    assert quantity == 7
+
+
+@pytest.mark.asyncio
+async def test_get_holding_quantity_simulation_reads_virtual_portfolio(
+    fund_manager: FundManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sim_portfolio = SimulationPortfolio(cash=100_000.0)
+    sim_portfolio.positions["005930"] = SimPosition(qty=10, avg_price=70_000.0, market="KR")
+
+    async def _load() -> SimulationPortfolio:
+        return sim_portfolio
+
+    monkeypatch.setattr(SimulationPortfolio, "load", _load)
+
+    quantity = await fund_manager.get_holding_quantity("005930", "SIMULATION")
+    missing = await fund_manager.get_holding_quantity("AAPL", "SIMULATION")
+
+    assert quantity == 10
+    assert missing == 0

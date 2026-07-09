@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getRedis } from "./redis";
+import { rateLimitBucket } from "./ip";
 
 const CODE_TTL_SECONDS = Number(process.env.MONITOR_AUTH_CODE_TTL_SECONDS ?? 300);
 const CODE_COOLDOWN_SECONDS = Number(process.env.MONITOR_AUTH_CODE_COOLDOWN_SECONDS ?? 30);
@@ -11,11 +12,13 @@ export const SESSION_COOKIE = "bin_monitor_session";
 
 const PUBSUB_CHANNEL = "pubsub:events";
 
+// Bucketed by rateLimitBucket() so an attacker can't evade these per-client limits by
+// rotating through addresses within one delegated IPv6 prefix (see ip.ts for why).
 const key = {
   code: () => "monitor:auth:code",
-  cooldown: (ip: string) => `monitor:auth:cooldown:${ip}`,
-  attempts: (ip: string) => `monitor:auth:attempts:${ip}`,
-  blocked: (ip: string) => `monitor:auth:blocked:${ip}`,
+  cooldown: (ip: string) => `monitor:auth:cooldown:${rateLimitBucket(ip)}`,
+  attempts: (ip: string) => `monitor:auth:attempts:${rateLimitBucket(ip)}`,
+  blocked: (ip: string) => `monitor:auth:blocked:${rateLimitBucket(ip)}`,
 };
 
 function timingSafeEqualStr(a: string, b: string): boolean {
