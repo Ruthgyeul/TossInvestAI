@@ -93,7 +93,9 @@ TossInvestAI/
 │   ├── TOSS_API.md
 │   ├── CODING_RULES.md
 │   ├── SELF_IMPROVEMENT.md
-│   └── INTERNAL_API.md
+│   ├── INTERNAL_API.md
+│   ├── MONITOR.md
+│   └── DEPLOYMENT.md
 │
 ├── .env                             # 비밀 키 (git 커밋 금지)
 ├── .env.example                     # 환경변수 템플릿
@@ -128,6 +130,16 @@ TossInvestAI/
 │   │       └── eventSubscriber.ts   # Redis pubsub:events 구독 (core → discord-bot 알림)
 │   ├── package.json
 │   └── tsconfig.json
+│
+├── monitor/                         # Next.js 키오스크 모니터 (docs/MONITOR.md) — 상호작용 없음
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── layout.tsx           # 폰트(Noto Sans KR·JetBrains Mono), 뷰포트
+│   │   │   ├── page.tsx             # KioskStage + MonitorDashboard 조립
+│   │   │   └── api/snapshot/route.ts  # 스냅샷 JSON (현재 목업, 실연동 시 core 프록시)
+│   │   ├── components/              # Header·SubStrip·TotalAssetsCard·PnlChart 등 섹션별 컴포넌트
+│   │   └── lib/                     # MonitorSnapshot 타입, 목업 데이터, 포맷터
+│   └── package.json
 │
 ├── core/                            # Python 트레이딩 코어
 │   ├── main.py                      # bin-core.service 진입점 (스케줄러 + 내부 API 기동)
