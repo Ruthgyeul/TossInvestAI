@@ -95,6 +95,19 @@ class FundManager:
         position_value = await self._get_position_value_krw(symbol, mode)
         return position_value / operating_funds
 
+    async def get_holding_quantity(self, symbol: str, mode: Mode = "LIVE") -> int:
+        """매도 가능 수량 (Safety Gate SELL 검증용, docs/SAFETY.md).
+
+        LIVE는 토스 매도가능수량 API(결제 미완료분 등을 반영)를, SIMULATION/DRY_RUN은
+        가상 포트폴리오 보유 수량을 그대로 사용한다.
+        """
+        if mode == "LIVE":
+            return await toss_account.get_sellable_quantity(symbol)
+
+        holdings, _ = await self._load_holdings_and_cash(mode)
+        holding = next((h for h in holdings if h["symbol"] == symbol), None)
+        return int(holding["quantity"]) if holding else 0
+
     async def can_allocate(self, amount_krw: float, symbol: str, mode: Mode = "LIVE") -> tuple[bool, str]:
         """주문 가능 여부 판단 (종목당 상한 MAX_POSITION_RATIO 체크)."""
         operating_funds = await self.get_operating_funds_krw(mode)

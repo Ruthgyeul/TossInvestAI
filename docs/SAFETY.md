@@ -61,7 +61,7 @@
 class SafetyGate:
     async def check(self, order: Order, mode: RunMode) -> GateResult:
 
-        # 0. 수량·금액은 반드시 양수 (0 이하는 5번 조건의 상한 비교를 무력화한다)
+        # 0. 수량·금액은 반드시 양수 (0 이하는 6번 조건의 상한 비교를 무력화한다)
         if order.quantity <= 0 or order.amount_krw <= 0:
             return GateResult.reject("주문 수량·금액은 0보다 커야 합니다")
 
@@ -88,36 +88,45 @@ class SafetyGate:
         if position_ratio > settings.MAX_POSITION_RATIO:
             return GateResult.reject(f"종목 비중 상한 초과: {position_ratio:.1%}")
 
-        # 5. 1회 주문 금액 상한
+        # 5. 매도 주문: 실제 매도 가능 수량 이내인지 확인 (미보유/초과 매도 방지)
+        #    LIVE: 토스 매도가능수량 API / 시뮬레이션: 가상 포트폴리오 보유 수량
+        if order.action == "SELL":
+            sellable = await fund_manager.get_holding_quantity(order.symbol, mode.mode)
+            if order.quantity > sellable:
+                return GateResult.reject(
+                    f"매도 가능 수량 초과: 보유 {sellable}주 / 요청 {order.quantity}주"
+                )
+
+        # 6. 1회 주문 금액 상한
         if order.amount_krw > settings.MAX_SINGLE_ORDER_KRW:
             return GateResult.reject(f"주문 금액 초과: {order.amount_krw:,} KRW")
 
-        # 6. 현금 버퍼 최소 유지
+        # 7. 현금 버퍼 최소 유지
         #    시뮬레이션: 가상 잔고 기준
         buffer = await portfolio.get_cash_buffer(mode)
         if buffer < settings.INITIAL_SEED_KRW * 0.05:
             return GateResult.reject("현금 버퍼 부족")
 
-        # 7. KR 종목: VI 발동·투자경고·정리매매 없음
+        # 8. KR 종목: VI 발동·투자경고·정리매매 없음
         if order.market == "KR":
             warnings = await toss.get_stock_warnings(order.symbol)
             if warnings.has_restriction:
                 return GateResult.reject(f"거래 제한 종목: {warnings.reason}")
 
-        # 8. 장 운영 중 확인
+        # 9. 장 운영 중 확인
         if not await market_calendar.is_open(order.market):
             return GateResult.reject("장 마감 시간")
 
-        # 9. 미국장 금액 주문은 정규장만
+        # 10. 미국장 금액 주문은 정규장만
         if order.market == "US" and order.type == "AMOUNT":
             if not await market_calendar.is_regular_session("US"):
                 return GateResult.reject("금액 주문은 정규장만 허용")
 
-        # 10. 주문 ID 중복 없음
+        # 11. 주문 ID 중복 없음
         if await db.order_id_exists(order.client_order_id):
             return GateResult.reject("중복 주문 ID")
 
-        # 11. 고위험 이벤트 당일: 주문 한도 50% 자동 축소
+        # 12. 고위험 이벤트 당일: 주문 한도 50% 자동 축소
         if await calendar.has_high_risk_event_today():
             limit = settings.MAX_SINGLE_ORDER_KRW * 0.5
             if order.amount_krw > limit:

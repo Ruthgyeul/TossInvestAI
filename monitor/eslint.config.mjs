@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Plain CommonJS entry point — must run standalone via `node server.js` with no
+    // build/transpile step, so it can't use ES module imports.
+    "server.js",
   ]),
 ]);
 
