@@ -297,7 +297,8 @@ TossInvestAI/
 |---------|-----|------|
 | `price:{symbol}` | 10s | 현재가 캐시 |
 | `candle:{symbol}:{tf}` | 60s | 캔들 데이터 캐시 |
-| `news:{symbol}` | 15분 | 뉴스 RSS 피드 캐시 |
+| `news:{symbol}` | 15분 | 종목별 뉴스 RSS 피드 캐시 |
+| `news:market:{market}` | 15분 | 시장 전반 경제 뉴스 RSS 병합 캐시 (KR: 한국경제·매일경제·서울경제·머니투데이) |
 | `ratelimit:{group}` | 1s | Toss API Rate Limit 카운터 |
 | `ratelimit:peak_last:{group}` | — | 피크 시간대 최소 요청 간격 제어 |
 | `token:toss` | 만료 5분 전 갱신 | OAuth2 Access Token |
