@@ -82,20 +82,100 @@ async def test_fetch_news_returns_empty_list_on_feed_failure(fake_redis) -> None
     assert articles == []
 
 
+def test_feed_url_picks_google_news_for_us_lowercase_stays_us() -> None:
+    # 알파벳이 하나라도 있으면 US로 판별한다 (isdigit == False).
+    assert not news._is_kr_symbol("AAPL")
+    assert news._is_kr_symbol("005930")
+
+
+def test_merge_headlines_dedups_and_preserves_order() -> None:
+    merged = news._merge_headlines(
+        ["A", "B"],
+        ["B", "C"],
+        ["A", "D"],
+    )
+    assert merged == ["A", "B", "C", "D"]
+
+
 @pytest.mark.asyncio
-async def test_get_news_summary_delegates_to_gemini(
+async def test_fetch_market_news_merges_feeds_and_caches(fake_redis) -> None:  # noqa: ANN001
+    feed_a = """<?xml version="1.0"?><rss version="2.0"><channel>
+      <item><title>한국은행 기준금리 동결</title></item>
+      <item><title>공통 헤드라인</title></item>
+    </channel></rss>"""
+    feed_b = """<?xml version="1.0"?><rss version="2.0"><channel>
+      <item><title>공통 헤드라인</title></item>
+      <item><title>코스피 2600 회복</title></item>
+    </channel></rss>"""
+
+    with aioresponses() as mocked:
+        # 4개 KR 경제 피드 중 2개는 정상, 2개는 장애 — 부분 실패에도 병합돼야 한다.
+        feeds = news._KR_ECONOMY_FEEDS
+        mocked.get(feeds[0], body=feed_a)
+        mocked.get(feeds[1], body=feed_b)
+        mocked.get(feeds[2], status=500)
+        mocked.get(feeds[3], exception=Exception("boom"))
+        articles = await news.fetch_market_news("KR")
+
+    assert articles == [
+        "한국은행 기준금리 동결",
+        "공통 헤드라인",
+        "코스피 2600 회복",
+    ]
+
+    # 두 번째 호출은 캐시에서 HTTP 목업 없이 동일 결과를 반환해야 한다.
+    with aioresponses():
+        cached = await news.fetch_market_news("KR")
+    assert cached == articles
+
+
+@pytest.mark.asyncio
+async def test_fetch_market_news_returns_empty_for_us(fake_redis) -> None:  # noqa: ANN001
+    assert await news.fetch_market_news("US") == []
+
+
+@pytest.mark.asyncio
+async def test_get_news_summary_merges_market_news_for_kr(
+    fake_redis, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+) -> None:
+    async def _fetch_news(symbol: str) -> list[str]:
+        return ["종목 헤드라인"]
+
+    async def _fetch_market_news(market: str) -> list[str]:
+        assert market == "KR"
+        return ["시장 헤드라인"]
+
+    async def _summarize_news(articles: list[str]) -> str:
+        assert articles == ["종목 헤드라인", "시장 헤드라인"]
+        return "요약 결과"
+
+    monkeypatch.setattr(news, "fetch_news", _fetch_news)
+    monkeypatch.setattr(news, "fetch_market_news", _fetch_market_news)
+    monkeypatch.setattr(news.gemini_gateway, "summarize_news", _summarize_news)
+
+    result = await news.get_news_summary("005930")
+
+    assert result == "요약 결과"
+
+
+@pytest.mark.asyncio
+async def test_get_news_summary_skips_market_news_for_us(
     fake_redis, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
 ) -> None:
     async def _fetch_news(symbol: str) -> list[str]:
         return ["헤드라인 1"]
+
+    async def _fetch_market_news(market: str) -> list[str]:
+        raise AssertionError("US 종목은 시장 전반 뉴스를 요청하지 않아야 한다")
 
     async def _summarize_news(articles: list[str]) -> str:
         assert articles == ["헤드라인 1"]
         return "요약 결과"
 
     monkeypatch.setattr(news, "fetch_news", _fetch_news)
+    monkeypatch.setattr(news, "fetch_market_news", _fetch_market_news)
     monkeypatch.setattr(news.gemini_gateway, "summarize_news", _summarize_news)
 
-    result = await news.get_news_summary("005930")
+    result = await news.get_news_summary("AAPL")
 
     assert result == "요약 결과"
